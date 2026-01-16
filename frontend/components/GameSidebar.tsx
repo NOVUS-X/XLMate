@@ -94,8 +94,8 @@ export function GameSidebar({
           >
             <div className="w-16 h-16 relative transform hover:scale-105 transition-transform duration-300">
               <Image
-                src="/images/StarkmateLogo.png"
-                alt="StarkMate"
+                src="/images/XLMateLogo.png"
+                alt="XLMate"
                 fill
                 className="object-contain drop-shadow-lg"
               />
@@ -268,8 +268,8 @@ function MobileSidebar({ className = "" }: MobileSidebarProps) {
       <div className="p-4 flex items-center space-x-2">
         <div className="w-16 h-16 relative">
           <Image
-            src="/images/StarkmateLogo.png"
-            alt="StarkMate"
+            src="/images/XLMateLogo.png"
+            alt="XLMate"
             fill
             className="object-contain"
           />

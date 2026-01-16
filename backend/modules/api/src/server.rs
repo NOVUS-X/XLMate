@@ -46,7 +46,7 @@ pub async fn main() -> std::io::Result<()> {
     
     // CORS configuration notice
     println!("CORS configuration: Set ALLOWED_ORIGINS env var with comma-separated origins");
-    println!("Example: ALLOWED_ORIGINS=http://localhost:3000,https://starkmate.com");
+    println!("Example: ALLOWED_ORIGINS=http://localhost:3000,https://xlmate.com");
     println!("If not set, all origins will be allowed (development mode only)");
 
     // Create a shared LobbyState actor

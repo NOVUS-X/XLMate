@@ -83,7 +83,7 @@ const WaitlistSection = () => {
           </h2>
           
           <p className="text-gray-300 text-lg mb-8 max-w-2xl mx-auto">
-            Be among the first to experience StarkMate when we launch. 
+            Be among the first to experience XLMate when we launch. 
             Get early access, exclusive NFTs, and updates on our progress.
           </p>
 
@@ -146,7 +146,7 @@ const WaitlistSection = () => {
                   </svg>
                 </div>
               </div>
-              <h3 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-purple-400 mb-3">Welcome to StarkMate!</h3>
+              <h3 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-purple-400 mb-3">Welcome to XLMate!</h3>
               <p className="text-gray-300 mb-4">
                 You're now part of our exclusive community. We'll send you updates about early access and special NFT drops.
               </p>

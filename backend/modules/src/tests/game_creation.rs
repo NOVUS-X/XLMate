@@ -9,7 +9,7 @@ use crate::routes::game_routes;
 
 async fn setup_test_db() -> PgPool {
     PgPoolOptions::new()
-        .connect("postgres://user:pass@localhost/starkmate_test")
+        .connect("postgres://user:pass@localhost/xlmate_test")
         .await
         .expect("Test DB connection failed")
 }

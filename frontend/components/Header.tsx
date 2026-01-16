@@ -37,7 +37,7 @@ export function Header() {
                             </svg>
                         </div>
                         <span className="font-bold text-xl bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-blue-600">
-                            STARKMATE
+                            XLMATE
                         </span>
                     </Link>
                 </div>

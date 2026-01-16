@@ -37,11 +37,11 @@ const Footer: FC = () => {
                 <div className="absolute top-0 left-0 w-full h-full opacity-50 bg-gradient-to-t from-transparent to-white/30"></div>
               </div>
               <span className="text-white font-bold text-xl tracking-tight">
-                Stark<span className="text-cyan-500">Mate</span>
+                XL<span className="text-cyan-500">Mate</span>
               </span>
             </div>
             <p className="text-gray-400 text-sm">
-              The premier platform for competitive gaming on StarkNet. Play,
+              The premier platform for competitive gaming on Stellar. Play,
               compete, and earn in a secure and decentralized environment.
             </p>
           </div>
@@ -134,7 +134,7 @@ const Footer: FC = () => {
             </h3>
             <div className="flex space-x-4">
               <Link
-                href="https://github.com/starkmate"
+                href="https://github.com/xlmate"
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="GitHub"
@@ -143,7 +143,7 @@ const Footer: FC = () => {
                 <Github className="w-5 h-5 text-gray-400 group-hover:text-cyan-400 transition-colors" />
               </Link>
               <Link
-                href="https://t.me/starkmate"
+                href="https://t.me/xlmate"
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="Telegram"
@@ -152,7 +152,7 @@ const Footer: FC = () => {
                 <Send className="w-5 h-5 text-gray-400 group-hover:text-cyan-400 transition-colors" />
               </Link>
               <Link
-                href="https://twitter.com/starkmate"
+                href="https://twitter.com/xlmate"
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="Twitter"
@@ -202,7 +202,7 @@ const Footer: FC = () => {
         {/* Bottom bar */}
         <div className="border-t border-gray-800 pt-6 flex flex-col md:flex-row justify-between items-center">
           <p className="text-gray-500 text-sm mb-4 md:mb-0">
-            &copy; {currentYear} StarkMate. All rights reserved.
+            &copy; {currentYear} XLMate. All rights reserved.
           </p>
           <div className="flex space-x-6">
             <Link

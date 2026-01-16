@@ -98,11 +98,11 @@ The API includes CORS (Cross-Origin Resource Sharing) middleware for handling re
 
 ### Environment Variables
 
-- `ALLOWED_ORIGINS`: Comma-separated list of allowed origins (e.g., `http://localhost:3000,https://starkmate.com`)
+- `ALLOWED_ORIGINS`: Comma-separated list of allowed origins (e.g., `http://localhost:3000,https://xlmate.com`)
 
 Example with specific origins:
 ```bash
-ALLOWED_ORIGINS=http://localhost:3000,https://starkmate.com cargo run
+ALLOWED_ORIGINS=http://localhost:3000,https://xlmate.com cargo run
 ```
 
 If not specified, the server will allow all origins (suitable for development only).

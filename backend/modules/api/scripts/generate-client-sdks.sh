@@ -31,7 +31,7 @@ npx @openapitools/openapi-generator-cli generate \
     -i $OPENAPI_JSON \
     -g typescript-axios \
     -o $OUTPUT_DIR/typescript \
-    --additional-properties=npmName=@starkmate/api-client,npmVersion=1.0.0,supportsES6=true,withSeparateModelsAndApi=true
+    --additional-properties=npmName=@xlmate/api-client,npmVersion=1.0.0,supportsES6=true,withSeparateModelsAndApi=true
 
 # Step 3: Generate Python client
 echo "Generating Python client..."
@@ -39,7 +39,7 @@ npx @openapitools/openapi-generator-cli generate \
     -i $OPENAPI_JSON \
     -g python \
     -o $OUTPUT_DIR/python \
-    --additional-properties=packageName=starkmate_client,packageVersion=1.0.0
+    --additional-properties=packageName=xlmate_client,packageVersion=1.0.0
 
 # Step 4: Generate Rust client
 echo "Generating Rust client..."
@@ -47,7 +47,7 @@ npx @openapitools/openapi-generator-cli generate \
     -i $OPENAPI_JSON \
     -g rust \
     -o $OUTPUT_DIR/rust \
-    --additional-properties=packageName=starkmate-client,packageVersion=1.0.0
+    --additional-properties=packageName=xlmate-client,packageVersion=1.0.0
 
 # Step 5: Clean up
 echo "Cleaning up..."

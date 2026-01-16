@@ -7,8 +7,8 @@ import { StarknetProvider } from "@/components/utils/Provider";
 import { Providers } from "./provider";
 
 export const metadata: Metadata = {
-  title: "Starkmate",
-  description: "Starkmate — Chess on Starknet",
+  title: "XLMate",
+  description: "XLMate — Chess on Stellar",
 };
 
 export default function RootLayout({

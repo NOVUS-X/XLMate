@@ -88,7 +88,7 @@ const HeroSection = () => {
         {/* Text content */}
         <div className="w-full md:w-1/2 text-center md:text-left mb-12 md:mb-0">
           <h1 className="text-4xl md:text-6xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-purple-400 mb-6 tracking-tight">
-            <span className="">STARK</span>
+            <span className="">XL</span>
             <span className="">MATE</span>
           </h1>
 
@@ -96,7 +96,7 @@ const HeroSection = () => {
             Play. Compete. Collect.{" "}
             <span className="text-cyan-400">On-Chain</span>.
             <br />
-            <span className="text-lg">Every move secured by Starknet.</span>
+            <span className="text-lg">Every move secured by Stellar.</span>
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center md:justify-start space-y-4 sm:space-y-0 sm:space-x-4">
