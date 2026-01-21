@@ -65,6 +65,17 @@ pub enum ServerMessage {
         code: String,
         message: String,
     },
+    GameTimeout {
+        room_id: String,
+        winner_id: String,
+        loser_id: String,
+        reason: String,
+    },
+    MoveRejected {
+        room_id: String,
+        player_id: String,
+        reason: String,
+    },
 }
 
 // Game state models
@@ -111,6 +122,7 @@ pub enum GameStatus {
     Checkmate,
     Stalemate,
     Draw,
+    Timeout,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -141,7 +153,16 @@ pub struct Room {
     pub players: Vec<Player>,
     pub game_state: Option<GameState>,
     pub moves: Vec<MoveRecord>,
+    pub white_remaining_ms: u64,
+    pub black_remaining_ms: u64,
+    pub last_move_at: Option<u64>,
+    pub initial_time_ms: u64,
+    pub increment_ms: u64,
 }
+
+// Default time control: 10 minutes (600000ms)
+const DEFAULT_INITIAL_TIME_MS: u64 = 600_000;
+const DEFAULT_INCREMENT_MS: u64 = 0;
 
 impl Room {
     pub fn new(id: String) -> Self {
@@ -150,6 +171,25 @@ impl Room {
             players: Vec::new(),
             game_state: None,
             moves: Vec::new(),
+            white_remaining_ms: DEFAULT_INITIAL_TIME_MS,
+            black_remaining_ms: DEFAULT_INITIAL_TIME_MS,
+            last_move_at: None,
+            initial_time_ms: DEFAULT_INITIAL_TIME_MS,
+            increment_ms: DEFAULT_INCREMENT_MS,
+        }
+    }
+
+    pub fn new_with_time(id: String, initial_time_ms: u64, increment_ms: u64) -> Self {
+        Self {
+            id,
+            players: Vec::new(),
+            game_state: None,
+            moves: Vec::new(),
+            white_remaining_ms: initial_time_ms,
+            black_remaining_ms: initial_time_ms,
+            last_move_at: None,
+            initial_time_ms,
+            increment_ms,
         }
     }
     
