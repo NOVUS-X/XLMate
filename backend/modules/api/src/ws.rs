@@ -100,13 +100,22 @@ pub struct WsSession {
 }
 
 impl WsSession {
-    const HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
-    const CLIENT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+    /// Server sends a ping every 15 seconds to detect dead connections
+    const HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(15);
+    /// Terminate connection if no pong received within 25 seconds (15s interval + 10s grace)
+    const CLIENT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(25);
 
     fn hb(&self, ctx: &mut ws::WebsocketContext<Self>) {
         ctx.run_interval(Self::HEARTBEAT_INTERVAL, |act, ctx| {
-            if std::time::Instant::now().duration_since(act.hb) > Self::CLIENT_TIMEOUT {
-                ctx.stop(); return;
+            let elapsed = std::time::Instant::now().duration_since(act.hb);
+            if elapsed > Self::CLIENT_TIMEOUT {
+                log::warn!(
+                    "WebSocket timeout for game {}: no pong in {}s, terminating connection",
+                    act.game_id,
+                    elapsed.as_secs()
+                );
+                ctx.stop();
+                return;
             }
             ctx.ping(b"");
         });
@@ -123,6 +132,7 @@ impl Actor for WsSession {
     }
 
     fn stopped(&mut self, ctx: &mut Self::Context) {
+        log::info!("WebSocket disconnected for game: {}", self.game_id);
         let addr = ctx.address().recipient();
         self.lobby.do_send(Disconnect { game_id: self.game_id.clone(), addr });
     }
