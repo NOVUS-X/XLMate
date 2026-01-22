@@ -3,9 +3,24 @@ name = "security"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "security"
+path = "src/main.rs"
+
 [dependencies]
 actix-web = "4"
 futures-util = "0.3"
 jsonwebtoken = "9.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+sha2 = "0.10"
+rand = "0.8"
+base64 = "0.21"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.8.0", features = ["serde", "v4"] }
+sea-orm = { version = "1.1.0", features = ["sqlx-postgres", "runtime-tokio-native-tls", "macros"] }
+dotenv = "0.15.0"
+entity = { path = "../db/entity", package = "db_entity" }
+db = { path = "../db" }
+error = { path = "../error" }
+

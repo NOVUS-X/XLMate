@@ -4,6 +4,36 @@ use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// Result of a chess game
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, EnumIter, DeriveActiveEnum)]
+#[sea_orm(rs_type = "String", db_type = "String(StringLen::N(16))")]
+pub enum ResultSide {
+    #[sea_orm(string_value = "white")]
+    White,
+    #[sea_orm(string_value = "black")]
+    Black,
+    #[sea_orm(string_value = "draw")]
+    Draw,
+    #[sea_orm(string_value = "ongoing")]
+    Ongoing,
+}
+
+/// Chess game variant
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, EnumIter, DeriveActiveEnum)]
+#[sea_orm(rs_type = "String", db_type = "String(StringLen::N(32))")]
+pub enum GameVariant {
+    #[sea_orm(string_value = "standard")]
+    Standard,
+    #[sea_orm(string_value = "chess960")]
+    Chess960,
+    #[sea_orm(string_value = "rapid")]
+    Rapid,
+    #[sea_orm(string_value = "blitz")]
+    Blitz,
+    #[sea_orm(string_value = "bullet")]
+    Bullet,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, DeriveEntityModel)]
 #[sea_orm(table_name = "game", schema_name = "smdb")]
 pub struct Model {

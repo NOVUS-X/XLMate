@@ -1,21 +1,34 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use validator::Validate;
+use validator::{Validate, ValidationError};
 use uuid::Uuid;
 use once_cell::sync::Lazy;
 use regex::Regex;
-
-// Define a regex for strong password validation
-// Requires at least one uppercase, one lowercase, one digit, and one special character
-static STRONG_PASSWORD_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$").unwrap()
-});
 
 // Define a regex for Ethereum wallet address validation
 // Requires 0x prefix followed by 40 hex characters
 static WALLET_ADDRESS_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"^0x[a-fA-F0-9]{40}$").unwrap()
 });
+
+/// Checks password strength: 8+ chars, mixed case, digit, and special char required.
+/// Replaced regex validation since Rust's regex crate doesn't support look-ahead.
+fn validate_strong_password(password: &str) -> Result<(), ValidationError> {
+    if password.len() < 8 {
+        return Err(ValidationError::new("password_too_short"));
+    }
+    
+    let has_uppercase = password.chars().any(|c| c.is_ascii_uppercase());
+    let has_lowercase = password.chars().any(|c| c.is_ascii_lowercase());
+    let has_digit = password.chars().any(|c| c.is_ascii_digit());
+    let has_special = password.chars().any(|c| "@$!%*?&_".contains(c));
+    
+    if !has_uppercase || !has_lowercase || !has_digit || !has_special {
+        return Err(ValidationError::new("password_weak"));
+    }
+    
+    Ok(())
+}
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Validate)]
 pub struct LoginRequest {
@@ -25,8 +38,8 @@ pub struct LoginRequest {
     
     #[validate(
         length(min = 8, message = "Password must be at least 8 characters"),
-        regex(
-            path = "STRONG_PASSWORD_REGEX",
+        custom(
+            function = "validate_strong_password",
             message = "Password must contain at least one uppercase letter, one lowercase letter, one digit, and one special character"
         )
     )]
@@ -75,8 +88,8 @@ pub struct RegisterRequest {
     
     #[validate(
         length(min = 8, message = "Password must be at least 8 characters"),
-        regex(
-            path = "STRONG_PASSWORD_REGEX",
+        custom(
+            function = "validate_strong_password",
             message = "Password must contain at least one uppercase letter, one lowercase letter, one digit, and one special character"
         )
     )]

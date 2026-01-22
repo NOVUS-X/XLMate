@@ -91,16 +91,16 @@ pub async fn update_player(id: Uuid, payload: UpdatePlayer) -> Result<player::Mo
     let mut active_model: player::ActiveModel = existing_player.clone().into();
 
     if let Some(biography) = payload.biography {
-        active_model.biography = Set(Some(biography));
+        active_model.biography = Set(biography);
     }
     if let Some(real_name) = payload.real_name {
         active_model.real_name = Set(real_name);
     }
     if let Some(country) = payload.country {
-        active_model.country = Set(Some(country));
+        active_model.country = Set(country);
     }
     if let Some(flair) = payload.flair {
-        active_model.flair = Set(Some(flair));
+        active_model.flair = Set(flair);
     }
     if let Some(location) = payload.location {
         active_model.location = Set(Some(location));

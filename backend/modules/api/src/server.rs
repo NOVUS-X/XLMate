@@ -1,11 +1,13 @@
 // src/server.rs
 
 use actix_web::{App, HttpResponse, HttpServer, Responder, web};
+use actix::Actor;
 use actix_cors::Cors;
 use dotenv::dotenv;
 use error::error::custom_json_error;
+use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
-use utoipa_redoc::Redoc;
+use utoipa_redoc::{Redoc, Servable};
 use std::env;
 use security::JwtAuthMiddleware;
 use crate::players::{add_player, delete_player, find_player_by_id, update_player};
@@ -13,9 +15,7 @@ use crate::games::{create_game, get_game, make_move, list_games, join_game, aban
 use crate::auth::{login, register, refresh_token, logout};
 use crate::ai::{get_ai_suggestion, analyze_position};
 use crate::ws::{LobbyState, ws_route};
-
-mod openapi;
-use openapi::ApiDoc;
+use crate::openapi::{ApiDoc, websocket_documentation};
 
 /// Simple health-check endpoint
 async fn health() -> impl Responder {
@@ -106,7 +106,7 @@ pub async fn main() -> std::io::Result<()> {
                     .service(get_game)
                     .service(list_games)
                     .service(join_game)
-                    .route("/{id}/move", web::put().to(make_move))
+                    .service(make_move)
                     .service(abandon_game),
             )
             // Auth routes
@@ -134,16 +134,13 @@ pub async fn main() -> std::io::Result<()> {
                     .url("/api/docs/openapi.json", openapi.clone())
                     .config(utoipa_swagger_ui::Config::default().try_it_out_enabled(true))
             )
-            // ReDoc integration (alternative documentation UI)
-            .service(
-                Redoc::new("/api/redoc")
-                    .url("/api/docs/openapi.json", openapi.clone())
-            )
+            // NOTE: ReDoc disabled due to utoipa v5 compatibility issue
+            // .service(Redoc::with_url("/api/redoc", openapi.clone()))
             // WebSocket documentation as static HTML
             .route("/api/docs/websocket", web::get().to(|| async {
                 HttpResponse::Ok()
                     .content_type("text/markdown")
-                    .body(openapi::websocket_documentation())
+                    .body(websocket_documentation())
             }))
     })
     .bind(&server_addr)?

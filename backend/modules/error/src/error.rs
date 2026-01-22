@@ -12,6 +12,11 @@ pub enum ApiError {
     NotFound(String),
     ValidationError(ValidationErrors),
     PasswordHashError(Argon2HashError),
+    // Token-related errors
+    TokenTheftDetected,
+    TokenExpired,
+    InvalidToken,
+    TokenRevoked,
 }
 
 impl From<DbErr> for ApiError {
@@ -75,6 +80,12 @@ impl fmt::Display for ApiError {
             ApiError::PasswordHashError(err) => {
                 write!(f, "Unable to hash password: {}", err.to_string())
             }
+            ApiError::TokenTheftDetected => {
+                write!(f, "Security alert: Token reuse detected. All sessions invalidated.")
+            }
+            ApiError::TokenExpired => write!(f, "Token has expired"),
+            ApiError::InvalidToken => write!(f, "Invalid or unknown token"),
+            ApiError::TokenRevoked => write!(f, "Token has been revoked"),
         }
     }
 }
@@ -101,6 +112,23 @@ impl ApiError {
             ApiError::PasswordHashError(_) => HttpResponse::InternalServerError().json(json!({
                 "error": self.to_string(),
                 "code":500
+            })),
+            ApiError::TokenTheftDetected => HttpResponse::Unauthorized().json(json!({
+                "error": self.to_string(),
+                "code": 401,
+                "theft_detected": true
+            })),
+            ApiError::TokenExpired => HttpResponse::Unauthorized().json(json!({
+                "error": self.to_string(),
+                "code": 401
+            })),
+            ApiError::InvalidToken => HttpResponse::Unauthorized().json(json!({
+                "error": self.to_string(),
+                "code": 401
+            })),
+            ApiError::TokenRevoked => HttpResponse::Unauthorized().json(json!({
+                "error": self.to_string(),
+                "code": 401
             })),
         }
     }

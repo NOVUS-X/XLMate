@@ -1,6 +1,7 @@
 use actix_web::{
     dev::{Service, ServiceRequest, ServiceResponse, Transform},
     error::Error,
+    body::{BoxBody, MessageBody},
     HttpMessage, HttpResponse,
 };
 use futures_util::future::{ok, LocalBoxFuture, Ready};
@@ -32,9 +33,9 @@ impl<S, B> Transform<S, ServiceRequest> for JwtAuthMiddleware
 where
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
     S::Future: 'static,
-    B: 'static,
+    B: MessageBody + 'static,
 {
-    type Response = ServiceResponse<B>;
+    type Response = ServiceResponse<BoxBody>;
     type Error = Error;
     type Transform = JwtAuthMiddlewareService<S>;
     type InitError = ();
@@ -57,9 +58,9 @@ impl<S, B> Service<ServiceRequest> for JwtAuthMiddlewareService<S>
 where
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
     S::Future: 'static,
-    B: 'static,
+    B: MessageBody + 'static,
 {
-    type Response = ServiceResponse<B>;
+    type Response = ServiceResponse<BoxBody>;
     type Error = Error;
     type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
 
@@ -71,10 +72,12 @@ where
         let secret_key = self.secret_key.clone();
         let auth_header = req.headers().get("Authorization");
         
+        // Check for Authorization header
         let auth_result = match auth_header {
             Some(header) => {
                 let header_str = header.to_str().unwrap_or("");
                 if !header_str.starts_with("Bearer ") {
+                    // Invalid format
                     return Box::pin(async move {
                         Ok(req.into_response(
                             HttpResponse::Unauthorized()
@@ -82,8 +85,7 @@ where
                                     "error": "Invalid authorization token format",
                                     "code": 401
                                 }))
-                                .into_body(),
-                        ))
+                        ).map_into_boxed_body())
                     });
                 }
                 
@@ -96,20 +98,21 @@ where
                     &validation,
                 ) {
                     Ok(token_data) => {
-                        // Set user_id in request extensions for later use
+                        // Valid token
                         req.extensions_mut().insert(token_data.claims);
                         true
                     }
-                    Err(_) => false,
+                    Err(_) => false, // Invalid token
                 }
             }
-            None => false,
+            None => false, // No token
         };
         
         if auth_result {
             let fut = self.service.call(req);
             Box::pin(async move {
-                fut.await
+                let res = fut.await?;
+                Ok(res.map_into_boxed_body())
             })
         } else {
             Box::pin(async move {
@@ -119,8 +122,7 @@ where
                             "error": "Invalid or missing authorization token",
                             "code": 401
                         }))
-                        .into_body(),
-                ))
+                ).map_into_boxed_body())
             })
         }
     }

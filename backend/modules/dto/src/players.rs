@@ -81,7 +81,7 @@ pub struct UpdatePlayer {
     pub social_links: Option<Vec<String>>,
 }
 
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct DisplayPlayer {
     #[schema(value_type = String, format = "uuid")]
     pub id: Uuid,
@@ -93,7 +93,7 @@ pub struct DisplayPlayer {
     pub real_name: String,
 }
 
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct UpdatedPlayer {
     #[schema(value_type = String, format = "uuid")]
     pub id: Uuid,
@@ -114,9 +114,9 @@ impl From<Model> for UpdatedPlayer {
             id: value.id,
             username: value.username,
             email: value.email,
-            biography: value.biography,
-            country: value.country,
-            flair: value.flair,
+            biography: Some(value.biography),
+            country: Some(value.country),
+            flair: Some(value.flair),
             real_name: value.real_name,
             location: value.location,
             fide_rating: value.fide_rating,
@@ -131,9 +131,9 @@ impl From<Model> for DisplayPlayer {
             id: value.id,
             username: value.username,
             email: value.email,
-            biography: value.biography,
-            country: value.country,
-            flair: value.flair,
+            biography: Some(value.biography),
+            country: Some(value.country),
+            flair: Some(value.flair),
             real_name: value.real_name,
         }
     }

@@ -1,4 +1,7 @@
 #[cfg(test)]
+mod auth_tests;
+
+#[cfg(test)]
 mod tests {
     use actix_web::{App, dev::Service, http::StatusCode, test, web};
     use dto::players::{InvalidPlayer, NewPlayer};

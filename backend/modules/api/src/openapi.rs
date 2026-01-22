@@ -209,5 +209,5 @@ If authentication fails or the token is missing, the connection will be immediat
   }
 }
 ```
-"#
+"#.to_string()
 }
