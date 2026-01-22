@@ -18,7 +18,7 @@ impl ProcessEngine {
         let mut child = Command::new(path)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stderr(Stdio::null())
             .spawn()?;
 
         let stdin = child.stdin.take().ok_or(EngineError::NotRunning)?;
@@ -34,13 +34,16 @@ impl ProcessEngine {
         // Initialize UCI
         engine.send_command("uci").await?;
         
-        // Wait for uciok
-        loop {
-            let line = engine.read_line().await?;
-            if let Some(UciMessage::UciOk) = parse_uci_line(&line) {
-                break;
+        // Wait for uciok with 5-second timeout
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let line = engine.read_line().await?;
+                if let Some(UciMessage::UciOk) = parse_uci_line(&line) {
+                    break;
+                }
             }
-        }
+            Ok::<(), EngineError>(())
+        }).await.map_err(|_| EngineError::Timeout)??;
 
         Ok(engine)
     }
@@ -54,7 +57,10 @@ impl ProcessEngine {
     async fn read_line(&self) -> Result<String, EngineError> {
         let mut reader = self.stdout_reader.lock().await;
         let mut line = String::new();
-        reader.read_line(&mut line).await?;
+        let bytes_read = reader.read_line(&mut line).await?;
+        if bytes_read == 0 {
+            return Err(EngineError::NotRunning);
+        }
         Ok(line.trim().to_string())
     }
 }
@@ -86,15 +92,15 @@ impl Engine for ProcessEngine {
                             depth: None,
                             principal_variation: Vec::new(),
                         };
-                        if let Some(UciMessage::Info { depth, score_cp, pv }) = last_info {
+                        if let Some(UciMessage::Info { depth, score_cp, score_mate: _, pv }) = last_info.clone() {
                             result.depth = depth;
                             result.evaluation = score_cp.map(|cp| cp as f32 / 100.0);
                             result.principal_variation = pv;
                         }
                         return Ok(result);
                     }
-                    Some(UciMessage::Info { depth, score_cp, pv }) => {
-                        last_info = Some(UciMessage::Info { depth, score_cp, pv });
+                    Some(UciMessage::Info { depth, score_cp, score_mate, pv }) => {
+                        last_info = Some(UciMessage::Info { depth, score_cp, score_mate, pv });
                     }
                     _ => {}
                 }
@@ -103,7 +109,33 @@ impl Engine for ProcessEngine {
 
         match result {
             Ok(res) => res,
-            Err(_) => Err(EngineError::Timeout),
+            Err(_) => {
+                let _ = self.send_command("stop").await;
+                // Drain lines until BestMove
+                loop {
+                    let line = self.read_line().await?;
+                    match parse_uci_line(&line) {
+                        Some(UciMessage::BestMove { best_move, .. }) => {
+                            let mut result = EngineResult {
+                                best_move,
+                                evaluation: None,
+                                depth: None,
+                                principal_variation: Vec::new(),
+                            };
+                            if let Some(UciMessage::Info { depth, score_cp, score_mate: _, pv }) = last_info {
+                                result.depth = depth;
+                                result.evaluation = score_cp.map(|cp| cp as f32 / 100.0);
+                                result.principal_variation = pv;
+                            }
+                            return Err(EngineError::Timeout);
+                        }
+                        Some(UciMessage::Info { depth, score_cp, score_mate, pv }) => {
+                            last_info = Some(UciMessage::Info { depth, score_cp, score_mate, pv });
+                        }
+                        _ => {}
+                    }
+                }
+            }
         }
     }
 
@@ -128,7 +160,17 @@ impl Engine for ProcessEngine {
 
         match result {
             Ok(res) => res,
-            Err(_) => Err(EngineError::Timeout),
+            Err(_) => {
+                let _ = self.send_command("stop").await;
+                // Drain lines until ReadyOk
+                loop {
+                    let line = self.read_line().await?;
+                    if let Some(UciMessage::ReadyOk) = parse_uci_line(&line) {
+                        break;
+                    }
+                }
+                Err(EngineError::Timeout)
+            }
         }
     }
 

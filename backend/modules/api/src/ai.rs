@@ -33,18 +33,22 @@ pub async fn get_ai_suggestion(payload: Json<AiSuggestionRequest>) -> HttpRespon
             let engine_path = env::var("ENGINE_PATH").unwrap_or_else(|_| "stockfish".to_string());
             let engine_service = EngineService::new(engine_path);
             
-            match engine_service.get_suggestion(
+            let start_time = std::time::Instant::now();
+            let result = engine_service.get_suggestion(
                 &payload.0.fen,
                 payload.0.depth,
                 payload.0.time_limit_ms
-            ).await {
+            ).await;
+            let elapsed = start_time.elapsed().as_millis() as u32;
+            
+            match result {
                 Ok(result) => {
                     HttpResponse::Ok().json(AiSuggestionResponse {
                         best_move: result.best_move,
                         evaluation: result.evaluation.unwrap_or(0.0),
                         depth: result.depth.unwrap_or(payload.0.depth.unwrap_or(10)),
                         principal_variation: result.principal_variation,
-                        computation_time_ms: payload.0.time_limit_ms.unwrap_or(0),
+                        computation_time_ms: elapsed,
                     })
                 }
                 Err(e) => {
