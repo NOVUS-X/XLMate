@@ -81,6 +81,11 @@ impl GameContract {
     ) -> bool {
         caller.require_auth();
 
+        // Check if contract has been initialized (Oracle must be set)
+        if !env.storage().instance().has(&symbol_short!(ORACLE_KEY)) {
+            panic!("Contract not initialized");
+        }
+
         // Validate amount
         if amount <= 0 {
             panic!("Amount must be positive");
@@ -204,17 +209,12 @@ impl GameContract {
 
                 // Verify signature against the message hash
                 // Oracle must sign: sha256(game_id || sha256(winner_address_xdr))
-                let valid = env
-                    .crypto()
-                    .ed25519_verify(
-                        &oracle_config.public_key,
-                        &message_hash,
-                        &signature,
-                    );
-
-                if !valid {
-                    panic!("Invalid Oracle signature");
-                }
+                // ed25519_verify panics on failure in soroban-sdk 21
+                env.crypto().ed25519_verify(
+                    &oracle_config.public_key,
+                    &message_hash,
+                    &signature,
+                );
 
                 // Update escrow state
                 escrow.state = EscrowState::Resolved;
