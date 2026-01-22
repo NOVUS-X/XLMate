@@ -74,16 +74,17 @@ impl GameContract {
 
     pub fn deposit(
         env: Env,
+        caller: Address,
         game_id: BytesN<32>,
         token_address: Address,
         amount: i128,
     ) -> bool {
+        caller.require_auth();
+
         // Validate amount
         if amount <= 0 {
             panic!("Amount must be positive");
         }
-
-        let caller = env.invoker();
 
         // Check if escrow already exists
         let escrow_key = (symbol_short!(ESCROW_KEY), game_id.clone());
@@ -143,8 +144,6 @@ impl GameContract {
             env.storage().persistent().set(&escrow_key, &escrow);
             return true;
         }
-
-        false
     }
 
     /// Resolve the game and set the winner
@@ -224,7 +223,9 @@ impl GameContract {
                 env.storage().persistent().set(&escrow_key, &escrow);
 
                 // Transfer winnings to winner (both deposits)
-                let total_amount = escrow.amount * 2;
+                let total_amount = escrow.amount
+                    .checked_mul(2)
+                    .unwrap_or_else(|| panic!("Amount overflow: cannot multiply by 2"));
                 let token_client = soroban_sdk::token::Client::new(&env, &escrow.token);
                 token_client.transfer(
                     &env.current_contract_address(),
@@ -235,14 +236,14 @@ impl GameContract {
                 return true;
             }
         }
-
-        false
     }
 
     /// Claim refund if game not resolved within timeout period
     /// Can be called by either player
    
-    pub fn claim_refund(env: Env, game_id: BytesN<32>) -> bool {
+    pub fn claim_refund(env: Env, caller: Address, game_id: BytesN<32>) -> bool {
+        caller.require_auth();
+
         // Get refund timeout
         let timeout_hours: u64 = env
             .storage()
@@ -274,7 +275,6 @@ impl GameContract {
                 }
 
                 // Verify caller is one of the players
-                let caller = env.invoker();
                 if caller != escrow.player1 && escrow.player2.as_ref() != Some(&caller) {
                     panic!("Only players can claim refund");
                 }
@@ -306,8 +306,6 @@ impl GameContract {
                 return true;
             }
         }
-
-        false
     }
 
     /// Get escrow information for a game
