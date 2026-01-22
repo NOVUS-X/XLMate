@@ -1,6 +1,6 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, Address, BytesN, Env,
+    contract, contractimpl, contracttype, symbol, symbol_short, Address, BytesN, Env,
 };
 
 // Constants
@@ -66,7 +66,7 @@ impl GameContract {
         
         env.storage()
             .instance()
-            .set(&symbol_short!(REFUND_TIMEOUT_KEY), &timeout);
+            .set(&symbol!("REFUND_TIMEOUT"), &timeout);
     }
 
     /// Deposit tokens for a game wager
@@ -192,18 +192,9 @@ impl GameContract {
                 let game_id_bytes = game_id.to_array();
                 
                 // Get deterministic representation of winner address
-                // Hash the XDR representation to get consistent 32 bytes
+                // Hash the full XDR representation to prevent collisions
                 let winner_xdr = winner_address.to_xdr(&env);
-                let winner_hash = env.crypto().sha256(&BytesN::from_array(
-                    &env,
-                    &{
-                        let mut arr = [0u8; 32];
-                        let xdr_bytes = winner_xdr.to_array();
-                        let len = xdr_bytes.len().min(32);
-                        arr[..len].copy_from_slice(&xdr_bytes[..len]);
-                        arr
-                    },
-                ));
+                let winner_hash = env.crypto().sha256(&winner_xdr);
                 
       
                 let mut message_preimage = [0u8; 64];
@@ -256,7 +247,7 @@ impl GameContract {
         let timeout_hours: u64 = env
             .storage()
             .instance()
-            .get(&symbol_short!(REFUND_TIMEOUT_KEY))
+            .get(&symbol!("REFUND_TIMEOUT"))
             .unwrap_or(REFUND_TIMEOUT_HOURS);
         let timeout_seconds = timeout_hours * SECONDS_PER_HOUR;
 
@@ -284,7 +275,7 @@ impl GameContract {
 
                 // Verify caller is one of the players
                 let caller = env.invoker();
-                if caller != escrow.player1 && caller != escrow.player2 {
+                if caller != escrow.player1 && escrow.player2.as_ref() != Some(&caller) {
                     panic!("Only players can claim refund");
                 }
 
@@ -336,7 +327,7 @@ impl GameContract {
     pub fn get_refund_timeout(env: Env) -> u64 {
         env.storage()
             .instance()
-            .get(&symbol_short!(REFUND_TIMEOUT_KEY))
+            .get(&symbol!("REFUND_TIMEOUT"))
             .unwrap_or(REFUND_TIMEOUT_HOURS)
     }
 }
