@@ -1,7 +1,5 @@
 use soroban_sdk::{Address, String, contracttype};
 
-pub const PRECISION: u32 = 100_000;
-
 #[derive(Clone)]
 #[contracttype]
 pub enum DataKey {
@@ -15,7 +13,6 @@ pub enum DataKey {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DaoConfig {
-    pub quorum: u32, // minimum level of voter participation (FOR + AGAINST + ABSTAIN)
     pub voting_period: u64,
     pub protocol_fee: i128,
     pub dao_token: Address,
@@ -26,7 +23,6 @@ pub struct DaoConfig {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProposalAction {
     UpdateFee(i128),
-    UpdateQuorum(u32),
     UpdateVotingPeriod(u64),
     UpdateDaoToken(Address),
     UpdateMinThreshold(i128),

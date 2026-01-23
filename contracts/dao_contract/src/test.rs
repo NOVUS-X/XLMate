@@ -42,7 +42,6 @@ fn create_dao_config<'a>(env: &Env) -> TestDaoConfig {
         dao_token: dao_token_client.address.clone(),
         min_threshold: 10,
         voting_period: 100,
-        quorum: 30,
         protocol_fee: 1,
     };
 
@@ -71,7 +70,6 @@ fn test_initialize_success() {
     let stored = dao_client.get_dao_config();
 
     assert_eq!(stored.min_threshold, 10);
-    assert_eq!(stored.quorum, 30);
     assert_eq!(stored.protocol_fee, 1);
     assert_eq!(stored.dao_token, token_client.address)
 }
@@ -110,9 +108,8 @@ fn test_initialize_with_invalid_configuraion_fails() {
     let dao_config = DaoConfig {
         dao_token: dao_token_client.address.clone(),
         min_threshold: 100,
-        voting_period: 100,
-        quorum: 0,
-        protocol_fee: 1,
+        voting_period: 0,
+        protocol_fee: 0,
     };
 
     let result = dao_client.try_initialize(&dao_config);

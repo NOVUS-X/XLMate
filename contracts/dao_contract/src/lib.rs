@@ -7,7 +7,7 @@ mod storage;
 use soroban_sdk::{Address, Env, String, contract, contractimpl, token};
 
 pub use error::DaoError;
-pub use storage::{DaoConfig, DataKey, PRECISION, Proposal, ProposalAction, Status, VoteAction};
+pub use storage::{DaoConfig, DataKey, Proposal, ProposalAction, Status, VoteAction};
 
 #[contract]
 pub struct DaoContract;
@@ -21,7 +21,7 @@ impl DaoContract {
             return Err(DaoError::AlreadyInitialized);
         }
 
-        if config.min_threshold == 0 || config.voting_period == 0 || config.quorum == 0 {
+        if config.min_threshold == 0 || config.voting_period == 0 || config.protocol_fee == 0 {
             return Err(DaoError::InvalidDaoConfiguration);
         }
 
@@ -178,13 +178,6 @@ impl DaoContract {
             return Ok(());
         }
 
-        // @note: we're unable to get the total supply of tokens meaning a staking mechanism would be needed
-        // to know how much of the tokens are available to check for the quorum
-        // that way instead of using amount of tokens the user has,
-        // their stakes will serve as the number of votes they have
-        // let vote_percentage = (total_votes * (PRECISION as i128) / total_staked) as u32;
-        // to know the participation percentage which must be greater than quorum
-
         if proposal.votes_for > proposal.votes_against {
             match proposal.action.clone() {
                 ProposalAction::UpdateDaoToken(new_token) => config.dao_token = new_token,
@@ -192,7 +185,6 @@ impl DaoContract {
                 ProposalAction::UpdateMinThreshold(new_threshold) => {
                     config.min_threshold = new_threshold
                 }
-                ProposalAction::UpdateQuorum(new_quorum) => config.quorum = new_quorum,
                 ProposalAction::UpdateVotingPeriod(new_voting_period) => {
                     config.voting_period = new_voting_period
                 }
@@ -303,7 +295,6 @@ impl DaoContract {
             ProposalAction::UpdateDaoToken(addr) => addr != &config.dao_token,
             ProposalAction::UpdateFee(fee) => fee > &0,
             ProposalAction::UpdateMinThreshold(threshold) => threshold > &0,
-            ProposalAction::UpdateQuorum(quorum) => quorum > &0,
             ProposalAction::UpdateVotingPeriod(period) => period > &0,
         }
     }

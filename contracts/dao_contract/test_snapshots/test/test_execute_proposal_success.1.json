@@ -287,14 +287,6 @@
                             },
                             {
                               "key": {
-                                "symbol": "quorum"
-                              },
-                              "val": {
-                                "u32": 30
-                              }
-                            },
-                            {
-                              "key": {
                                 "symbol": "voting_period"
                               },
                               "val": {

@@ -32,19 +32,6 @@ The design prioritizes:
    * Passing proposals update DAO configuration.
    * Proposals with no participation or insufficient support fail safely.
 
-## Precision Model
-
-```rust
-pub const PRECISION: u32 = 100_000;
-```
-
-Governance thresholds (such as quorum) are evaluated using fixed-point arithmetic. Percentages are scaled by `PRECISION` to avoid floating-point math.
-
-Example:
-
-* `quorum = 50` means **50%**
-* internally evaluated as `50 * PRECISION`
-
 ## Storage Layout
 
 ```rust
@@ -89,7 +76,6 @@ pub enum DataKey {
 
 ```rust
 pub struct DaoConfig {
-    pub quorum: u32,
     pub voting_period: u64,
     pub protocol_fee: i128,
     pub dao_token: Address,
@@ -98,22 +84,6 @@ pub struct DaoConfig {
 ```
 
 ### Field-by-Field Explanation
-
-#### `quorum: u32`
-
-* Represents the minimum percentage of total voting power that must participate in a proposal for it to be valid.
-
-* A proposal is considered valid only if the total voting power that participated in the vote meets or exceeds the configured quorum threshold.
-
-* This is evaluated using total participation across **all vote types** (`FOR`, `AGAINST`, and `ABSTAIN`) and is checked by:
-
-    ```rust
-    is_valid =
-      (votes_for + votes_against + votes_abstain)
-        * PRECISION
-        / total_available_votes
-      >= quorum * PRECISION
-    ```
 
 #### `voting_period: u64`
 
@@ -146,7 +116,6 @@ pub struct DaoConfig {
 ```rust
 pub enum ProposalAction {
     UpdateFee(i128),
-    UpdateQuorum(u32),
     UpdateVotingPeriod(u64),
     UpdateDaoToken(Address),
     UpdateMinThreshold(i128),
@@ -158,7 +127,6 @@ Each proposal encodes **exactly one executable governance action**.
 ### Supported Actions
 
 * **UpdateFee** – change the protocol fee
-* **UpdateQuorum** – adjust governance quorum requirements
 * **UpdateVotingPeriod** – modify voting duration
 * **UpdateDaoToken** – migrate to a new governance token
 * **UpdateMinThreshold** – update proposal creation threshold
