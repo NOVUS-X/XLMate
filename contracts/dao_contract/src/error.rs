@@ -15,4 +15,5 @@ pub enum DaoError {
     ProposalVotingEnded = 9,
     ProposalVotingNotEnded = 10,
     UserBalanceIsEmpty = 11,
+    ProposalAlreadyExecuted = 12,
 }

@@ -602,3 +602,52 @@ fn test_execute_proposal_before_end_date_fails() {
 
     assert_eq!(result, Err(Ok(DaoError::ProposalVotingNotEnded)));
 }
+
+#[test]
+fn test_execute_proposal_twice_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let TestDaoConfig {
+        dao_client,
+        dao_config,
+        token_client: _,
+        token_admin_client,
+    } = create_dao_config(&env);
+
+    dao_client.initialize(&dao_config);
+
+    let proposer = Address::generate(&env);
+
+    // Mint tokens
+    token_admin_client.mint(&proposer, &100);
+
+    // token_admin_client
+
+    dao_client.create_proposal(
+        &proposer,
+        &String::from_str(&env, "update fee"),
+        &ProposalAction::UpdateFee(5),
+    );
+
+    let proposal = dao_client.get_proposal(&0);
+
+    let voter1 = Address::generate(&env);
+    let voter2 = Address::generate(&env);
+
+    // Mint tokens to voter
+    token_admin_client.mint(&voter1, &50);
+    token_admin_client.mint(&voter2, &100);
+
+    dao_client.vote_proposal(&0, &voter1, &VoteAction::For);
+    dao_client.vote_proposal(&0, &voter2, &VoteAction::For);
+
+    // Move ledger to future
+    env.ledger().set_timestamp(proposal.end_date + 100);
+
+    dao_client.execute_proposal(&0, &proposer);
+
+    let result = dao_client.try_execute_proposal(&0, &proposer);
+
+    assert_eq!(result, Err(Ok(DaoError::ProposalAlreadyExecuted)));
+}

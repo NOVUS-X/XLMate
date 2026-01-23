@@ -109,7 +109,7 @@ impl DaoContract {
 
         let timestamp = env.ledger().timestamp();
 
-        if proposal.end_date < timestamp {
+        if proposal.end_date <= timestamp {
             return Err(DaoError::ProposalVotingEnded);
         }
 
@@ -158,6 +158,10 @@ impl DaoContract {
 
         if proposal.end_date > timestamp {
             return Err(DaoError::ProposalVotingNotEnded);
+        }
+
+        if proposal.status != Status::Open {
+            return Err(DaoError::ProposalAlreadyExecuted);
         }
 
         let mut config = Self::_get_config(&env).ok_or(DaoError::ConfigNotFound)?;

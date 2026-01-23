@@ -112,7 +112,7 @@ pub struct DaoConfig {
       (votes_for + votes_against + votes_abstain)
         * PRECISION
         / total_available_votes
-      >= quorum
+      >= quorum * PRECISION
     ```
 
 #### `voting_period: u64`
@@ -207,7 +207,7 @@ pub enum Status {
 ```
 
 1. **Open** – voting is active
-2. **Successful** – quorum reached, action executed
-3. **Failed** – quorum not met or no votes cast
+2. **Successful** – votes for is greater and quorum(not in place now) met action executed
+3. **Failed** – votes for is less than or quorum(not in place now) not met or no votes cast
 
 > Proposals with **zero votes** are explicitly executable and always fail.
