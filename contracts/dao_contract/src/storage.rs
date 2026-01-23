@@ -10,6 +10,8 @@ pub enum DataKey {
     ProposalsCount,
     Proposals(u32),
     VoteRecord(u32, Address),
+    Shares(Address),
+    TotalStaked,
 }
 
 #[contracttype]
