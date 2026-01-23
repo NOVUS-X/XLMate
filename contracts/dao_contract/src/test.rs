@@ -179,6 +179,34 @@ fn test_create_proposal_fails_if_threshold_not_met() {
 }
 
 #[test]
+fn test_create_proposal_fails_if_invalid_configuration_is_passed() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let TestDaoConfig {
+        dao_client,
+        dao_config,
+        token_client: _,
+        token_admin_client,
+    } = create_dao_config(&env);
+
+    dao_client.initialize(&dao_config);
+
+    let proposer = Address::generate(&env);
+
+    // Mint min balance to proposer address
+    token_admin_client.mint(&proposer, &100);
+
+    let result = dao_client.try_create_proposal(
+        &proposer,
+        &String::from_str(&env, "update fee"),
+        &ProposalAction::UpdateVotingPeriod(0),
+    );
+
+    assert_eq!(result, Err(Ok(DaoError::InvalidDaoConfiguration)));
+}
+
+#[test]
 fn test_create_proposal_fails_if_dao_is_not_initialized() {
     let env = Env::default();
     env.mock_all_auths();

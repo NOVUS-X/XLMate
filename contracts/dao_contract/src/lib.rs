@@ -52,6 +52,12 @@ impl DaoContract {
 
         let config = Self::_get_config(&env).ok_or(DaoError::ConfigNotFound)?;
 
+        let is_valid = Self::_validate_proposal_action(&action, &config);
+
+        if !is_valid {
+            return Err(DaoError::InvalidDaoConfiguration);
+        }
+
         let dao_token_client = token::Client::new(&env, &config.dao_token);
 
         let user_balance = dao_token_client.balance(&proposer);
@@ -168,6 +174,13 @@ impl DaoContract {
             return Ok(());
         }
 
+        // @note: we're unable to get the total supply of tokens meaning a staking mechanism would be needed
+        // to know how much of the tokens are available to check for the quorum
+        // that way instead of using amount of tokens the user has,
+        // their stakes will serve as the number of votes they have
+        // let vote_percentage = (total_votes * (PRECISION as i128) / total_staked) as u32;
+        // to know the participation percentage which must be greater than quorum
+
         if proposal.votes_for > proposal.votes_against {
             match proposal.action.clone() {
                 ProposalAction::UpdateDaoToken(new_token) => config.dao_token = new_token,
@@ -279,6 +292,16 @@ impl DaoContract {
             .instance()
             .get::<_, bool>(&DataKey::VoteRecord(proposal_id.clone(), user.clone()))
             .unwrap_or_default()
+    }
+
+    fn _validate_proposal_action(action: &ProposalAction, config: &DaoConfig) -> bool {
+        match action {
+            ProposalAction::UpdateDaoToken(addr) => addr != &config.dao_token,
+            ProposalAction::UpdateFee(fee) => fee > &0,
+            ProposalAction::UpdateMinThreshold(threshold) => threshold > &0,
+            ProposalAction::UpdateQuorum(quorum) => quorum > &0,
+            ProposalAction::UpdateVotingPeriod(period) => period > &0,
+        }
     }
 }
 

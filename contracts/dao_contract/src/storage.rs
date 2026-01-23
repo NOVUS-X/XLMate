@@ -16,7 +16,7 @@ pub enum DataKey {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DaoConfig {
-    pub quorum: u32,
+    pub quorum: u32, // minimum level of voter participation (FOR + AGAINST + ABSTAIN)
     pub voting_period: u64,
     pub protocol_fee: i128,
     pub dao_token: Address,

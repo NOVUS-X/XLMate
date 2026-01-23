@@ -101,14 +101,19 @@ pub struct DaoConfig {
 
 #### `quorum: u32`
 
-* Minimum percentage of **FOR votes** required for a proposal to pass.
-* Expressed as a whole number percentage (e.g. `50` = 50%).
-* Evaluated using `PRECISION` for accuracy.
+* Represents the minimum percentage of total voting power that must participate in a proposal for it to be valid.
 
-> A proposal passes if:
-> `(votes_for / total_votes) >= quorum`
+* A proposal is considered valid only if the total voting power that participated in the vote meets or exceeds the configured quorum threshold.
 
----
+* This is evaluated using total participation across **all vote types** (`FOR`, `AGAINST`, and `ABSTAIN`) and is checked by:
+
+    ```rust
+    is_valid =
+      (votes_for + votes_against + votes_abstain)
+        * PRECISION
+        / total_available_votes
+      >= quorum
+    ```
 
 #### `voting_period: u64`
 
@@ -117,13 +122,11 @@ pub struct DaoConfig {
 
   * `end_date = start_date + voting_period`
 
-
 #### `protocol_fee: i128`
 
 * Governance-controlled protocol fee value.
 * Can represent basis points, flat fees, or other protocol-specific units.
 * Updated via governance proposals only.
-
 
 #### `dao_token: Address`
 
