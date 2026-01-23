@@ -6,7 +6,6 @@ mod auth_tests {
 
     use crate::auth::{login, register, refresh_token, logout};
 
-    /// Helper to extract refresh token cookie from response
     fn get_refresh_cookie(res: &actix_web::dev::ServiceResponse) -> Option<String> {
         res.response()
             .cookies()
@@ -16,85 +15,145 @@ mod auth_tests {
 
     #[actix_web::test]
     async fn test_login_returns_access_token_and_cookie() {
-        // Note: This test requires a running database with a test user
-        // For unit testing without DB, mock the service layer
         let app = test::init_service(
-            App::new().service(web::scope("/v1/auth").service(login))
+            App::new()
+                .service(web::scope("/v1/auth")
+                    .service(register)
+                    .service(login))
         ).await;
 
+        // 1. Register
+        let r_req = test::TestRequest::post()
+            .uri("/v1/auth/register")
+            .set_json(RegisterRequest {
+                username: "login_tester".to_string(),
+                email: "login@example.com".to_string(),
+                password: "Password123!".to_string(),
+                wallet_address: "0x1234567890123456789012345678901234567890".to_string(),
+            })
+            .to_request();
+        let _ = app.call(r_req).await.unwrap();
+
+        // 2. Login
         let req = test::TestRequest::post()
             .uri("/v1/auth/login")
             .set_json(LoginRequest {
-                username: "test_user".to_string(),
-                password: "Test_password123!".to_string(),
+                username: "login_tester".to_string(),
+                password: "Password123!".to_string(),
             })
             .to_request();
 
         let res = app.call(req).await.unwrap();
         
-        // Check for refresh token cookie
-        let cookie = get_refresh_cookie(&res);
+        // Assert status first
+        assert_eq!(res.status(), StatusCode::OK);
         
-        if res.status() == StatusCode::OK {
-            assert!(cookie.is_some(), "Response should contain refresh_token cookie");
-            
-            let body = test::read_body(res).await;
-            let response: Value = serde_json::from_slice(&body).unwrap();
-            
-            assert!(response.get("access_token").is_some(), "Response should contain access_token");
-            assert!(response.get("token_type").is_some(), "Response should contain token_type");
-            assert!(response.get("expires_in").is_some(), "Response should contain expires_in");
-        }
+        // Assert cookie
+        let cookie = get_refresh_cookie(&res);
+        assert!(cookie.is_some(), "Response should contain refresh_token cookie");
+        
+        // Assert body
+        let body: Value = test::read_body_json(res).await;
+        assert!(body.get("access_token").is_some());
+        assert!(body.get("token_type").is_some());
+        assert!(body.get("expires_in").is_some());
     }
 
     #[actix_web::test]
     async fn test_refresh_rotates_token() {
-        // This test verifies that calling /refresh returns a new token
-        // and the old token is marked as used
         let app = test::init_service(
-            App::new().service(web::scope("/v1/auth").service(refresh_token))
+            App::new()
+                .service(web::scope("/v1/auth")
+                    .service(register)
+                    .service(login)
+                    .service(refresh_token))
         ).await;
 
-        // First, we need a valid refresh token
-        // In a real test, you'd first login to get a token
+        // 1. Register & Login
+        let r_req = test::TestRequest::post()
+            .uri("/v1/auth/register")
+            .set_json(RegisterRequest {
+                username: "refresh_tester".to_string(),
+                email: "refresh@example.com".to_string(),
+                password: "Password123!".to_string(),
+                wallet_address: "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd".to_string(),
+            })
+            .to_request();
+        let _ = app.call(r_req).await.unwrap();
+
+        let l_req = test::TestRequest::post()
+            .uri("/v1/auth/login")
+            .set_json(LoginRequest {
+                username: "refresh_tester".to_string(),
+                password: "Password123!".to_string(),
+            })
+            .to_request();
+        let l_res = app.call(l_req).await.unwrap();
+        let old_token = get_refresh_cookie(&l_res).expect("Login should verify");
+
+        // 2. Refresh
         let req = test::TestRequest::post()
             .uri("/v1/auth/refresh")
-            .set_json(RefreshTokenRequest {
-                refresh_token: "invalid_token".to_string(),
-            })
+            .cookie(Cookie::new("refresh_token", old_token.clone()))
             .to_request();
 
         let res = app.call(req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
         
-        // With an invalid token, we should get 401
-        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+        let new_token = get_refresh_cookie(&res).expect("Refresh should verify");
+        assert_ne!(old_token, new_token, "Token should rotate");
     }
 
     #[actix_web::test]
     async fn test_refresh_with_used_token_returns_theft_error() {
-        // This test verifies that reusing a token triggers theft detection
-        // In a real scenario:
-        // 1. Login to get token A
-        // 2. Call /refresh with A -> get token B (A is marked used)
-        // 3. Call /refresh with A again -> should get 401 with theft_detected: true
-        
         let app = test::init_service(
-            App::new().service(web::scope("/v1/auth").service(refresh_token))
+            App::new()
+                .service(web::scope("/v1/auth")
+                    .service(register)
+                    .service(login)
+                    .service(refresh_token))
         ).await;
 
-        // We need to simulate the theft detection scenario
-        // This requires database setup, so for now we just test the endpoint exists
-        let req = test::TestRequest::post()
-            .uri("/v1/auth/refresh")
-            .set_json(RefreshTokenRequest {
-                refresh_token: "some_token".to_string(),
+        // 1. Setup User & Token
+        let r_req = test::TestRequest::post()
+            .uri("/v1/auth/register")
+            .set_json(RegisterRequest {
+                username: "theft_tester".to_string(),
+                email: "theft@example.com".to_string(),
+                password: "Password123!".to_string(),
+                wallet_address: "0x1111111111111111111111111111111111111111".to_string(),
             })
             .to_request();
+        let _ = app.call(r_req).await.unwrap();
 
-        let res = app.call(req).await.unwrap();
+        let l_req = test::TestRequest::post()
+            .uri("/v1/auth/login")
+            .set_json(LoginRequest {
+                username: "theft_tester".to_string(),
+                password: "Password123!".to_string(),
+            })
+            .to_request();
+        let l_res = app.call(l_req).await.unwrap();
+        let token_a = get_refresh_cookie(&l_res).expect("Login failed");
+
+        // 2. Refresh (Rotates A -> B, A is now used)
+        let req1 = test::TestRequest::post()
+            .uri("/v1/auth/refresh")
+            .cookie(Cookie::new("refresh_token", token_a.clone()))
+            .to_request();
+        let res1 = app.call(req1).await.unwrap();
+        assert_eq!(res1.status(), StatusCode::OK);
+
+        // 3. Reuse A (Theft Attempt)
+        let req2 = test::TestRequest::post()
+            .uri("/v1/auth/refresh")
+            .cookie(Cookie::new("refresh_token", token_a.clone()))
+            .to_request();
+        let res2 = app.call(req2).await.unwrap();
         
-        // Endpoint should respond (even if with error)
-        assert!(res.status().is_client_error() || res.status().is_success());
+        assert_eq!(res2.status(), StatusCode::UNAUTHORIZED);
+        // Can't check "theft_detected" boolean easily without knowing exact response struct,
+        // but 401 is expected for theft/reuse.
     }
 
     #[actix_web::test]
@@ -111,15 +170,13 @@ mod auth_tests {
         
         assert_eq!(res.status(), StatusCode::OK);
         
-        // Check that the cookie is cleared (max_age = 0)
         let cookie = res.response()
             .cookies()
-            .find(|c| c.name() == "refresh_token");
+            .find(|c| c.name() == "refresh_token")
+            .expect("Logout response must contain Set-Cookie for refresh_token");
         
-        if let Some(c) = cookie {
-            // Cookie should be empty or have max_age of 0
-            assert!(c.value().is_empty() || c.max_age() == Some(time::Duration::seconds(0)));
-        }
+        assert!(cookie.value().is_empty() || cookie.max_age() == Some(time::Duration::seconds(0)), 
+                "Cookie must be cleared (empty or max-age 0)");
     }
 
     #[actix_web::test]
@@ -131,25 +188,27 @@ mod auth_tests {
         let req = test::TestRequest::post()
             .uri("/v1/auth/register")
             .set_json(RegisterRequest {
-                username: format!("test_user_{}", uuid::Uuid::new_v4()),
-                email: format!("test_{}@example.com", uuid::Uuid::new_v4()),
-                password: "Test_password123!".to_string(),
-                wallet_address: "0x1234567890abcdef1234567890abcdef12345678".to_string(),
+                username: "new_reg_user".to_string(),
+                email: "new_reg@example.com".to_string(),
+                password: "Password123!".to_string(),
+                wallet_address: "0x2222222222222222222222222222222222222222".to_string(),
             })
             .to_request();
 
         let res = app.call(req).await.unwrap();
         
-        // If database is available, check for success
-        if res.status() == StatusCode::CREATED {
-            let cookie = get_refresh_cookie(&res);
-            assert!(cookie.is_some(), "Response should contain refresh_token cookie");
-            
-            let body = test::read_body(res).await;
-            let response: Value = serde_json::from_slice(&body).unwrap();
-            
-            assert!(response.get("access_token").is_some());
-            assert!(response.get("user").is_some());
+        if res.status() != StatusCode::CREATED {
+             let status = res.status();
+             let body = test::read_body(res).await;
+             panic!("Register failed: Status {}, Body {:?}", status, body);
         }
+        
+        // Assert cookie presence
+        let cookie = get_refresh_cookie(&res);
+        assert!(cookie.is_some());
+        
+        // Assert body presence
+        let body: Value = test::read_body_json(res).await;
+        assert!(body.get("access_token").is_some());
     }
 }

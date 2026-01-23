@@ -21,14 +21,6 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Player::Email).string().not_null().unique_key())
                     .col(ColumnDef::new(Player::PasswordHash).string().not_null())
                     .col(ColumnDef::new(Player::WalletAddress).string().null())
-                    .col(ColumnDef::new(Player::Biography).string().not_null().default("".to_string()))
-                    .col(ColumnDef::new(Player::Country).string().not_null().default("Unknown".to_string()))
-                    .col(ColumnDef::new(Player::Flair).string().not_null().default("".to_string()))
-                    .col(ColumnDef::new(Player::RealName).string().not_null().default("".to_string()))
-                    .col(ColumnDef::new(Player::Location).string().null())
-                    .col(ColumnDef::new(Player::FideRating).integer().null())
-                    .col(ColumnDef::new(Player::SocialLinks).json().null())
-                    .col(ColumnDef::new(Player::IsEnabled).boolean().not_null().default(true))
                     .col(
                         ColumnDef::new(Player::CreatedAt)
                             .timestamp_with_time_zone()
@@ -61,14 +53,6 @@ pub enum Player {
     Email,
     PasswordHash,
     WalletAddress,
-    Biography,
-    Country,
-    Flair,
-    RealName,
-    Location,
-    FideRating,
-    SocialLinks,
-    IsEnabled,
     CreatedAt,
     UpdatedAt,
 }

@@ -1052,6 +1052,7 @@ dependencies = [
  "rand 0.8.5",
  "sea-orm",
  "serde_json",
+ "sqlx",
  "tokio",
  "uuid",
 ]

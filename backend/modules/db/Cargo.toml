@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-sea-orm = { version = "1.1.0", features = [ "sqlx-postgres", "sqlx-sqlite", "runtime-tokio-native-tls", "macros" ] }
+sea-orm = { version = "1.1.0", features = [ "sqlx-postgres", "sqlx-sqlite", "runtime-tokio-native-tls", "macros", "with-uuid" ] }
+sqlx = { version = "0.8", features = ["runtime-tokio-native-tls", "sqlite", "uuid", "macros"] }
 dotenv = "0.15.0"
 async-std = { version = "1", features = ["attributes", "tokio1"] }
 

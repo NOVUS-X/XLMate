@@ -5,6 +5,7 @@ mod m20250429_163843_create_games_table;
 mod m20250429_192832_add_common_indexes;
 mod m20250604_160341_create_games_and_moves;
 mod m20260121_000001_create_refresh_tokens_table;
+mod m20260124_000001_add_player_details;
 
 
 pub struct Migrator;
@@ -18,6 +19,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20250429_192832_add_common_indexes::Migration),
             Box::new(m20250604_160341_create_games_and_moves::Migration),
             Box::new(m20260121_000001_create_refresh_tokens_table::Migration),
+            Box::new(m20260124_000001_add_player_details::Migration),
         ]
     }
 }

@@ -4,8 +4,14 @@
 //! For production, just set DATABASE_URL=postgres://user:pass@host:5432/dbname.
 
 pub mod db {
-    use sea_orm::{ConnectOptions, Database, DatabaseConnection, DbBackend, Schema};
+    use sea_orm::{ConnectOptions, Database, DatabaseConnection, DbBackend, Schema, SqlxSqliteConnector};
     use migration::{Migrator, MigratorTrait};
+    use std::str::FromStr;
+    use tokio::sync::OnceCell;
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+
+    // Singleton instance for Mock DB to allow shared state in memory
+    static MOCK_DB: OnceCell<DatabaseConnection> = OnceCell::const_new();
 
     /// Quick check: am running in mock mode?
     pub fn is_mock_mode() -> bool {
@@ -27,22 +33,34 @@ pub mod db {
         
         // In-memory SQLite when no real database is configured
         if database_url.is_empty() || database_url.starts_with("mock://") {
-            #[cfg(debug_assertions)]
-            eprintln!("⚠️  WARNING: Using MOCK DATABASE (in-memory SQLite)");
-            #[cfg(debug_assertions)]
-            eprintln!("⚠️  Data will NOT be persisted. Set DATABASE_URL for production.");
+            let db = MOCK_DB.get_or_init(|| async {
+                #[cfg(debug_assertions)]
+                eprintln!("⚠️  WARNING: Using MOCK DATABASE (in-memory SQLite)");
+                #[cfg(debug_assertions)]
+                eprintln!("⚠️  Data will NOT be persisted. Set DATABASE_URL for production.");
+                
+                // Use file-based SQLite for test persistence across runtimes
+                // Use process ID in filename to ensure fresh DB per test run
+                let db_filename = format!("test_{}.db", std::process::id());
+                let opts = SqliteConnectOptions::new()
+                    .filename(&db_filename)
+                    .create_if_missing(true);
+
+                let pool = SqlitePoolOptions::new()
+                    .max_connections(1)
+                    .connect_with(opts)
+                    .await
+                    .expect("Failed to create mock database pool");
+                
+                let db = SqlxSqliteConnector::from_sqlx_sqlite_pool(pool);
+                
+                // AUTOMATIC MIGRATION: Initialize schema for tests (run once)
+                Migrator::up(&db, None).await.expect("Failed to run migrations for mock DB");
+                
+                db
+            }).await;
             
-            let mock_url = "sqlite::memory:";
-            let connect_options = ConnectOptions::new(mock_url);
-            
-            let db = Database::connect(connect_options)
-                .await
-                .expect("Failed to create mock database");
-            
-            // AUTOMATIC MIGRATION: Initialize schema for tests
-            Migrator::up(&db, None).await.expect("Failed to run migrations for mock DB");
-            
-            db
+            db.clone()
         } else {
             // Real database connection for production
             let connect_options = ConnectOptions::new(&database_url);

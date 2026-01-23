@@ -185,7 +185,7 @@ pub async fn register(payload: Json<RegisterRequest>) -> HttpResponse {
 #[utoipa::path(
     post,
     path = "/v1/auth/refresh",
-    request_body = RefreshTokenRequest,
+    request_body = Option<RefreshTokenRequest>,
     responses(
         (status = 200, description = "Token refreshed successfully", body = TokenResponse),
         (status = 401, description = "Invalid refresh token", body = InvalidCredentialsResponse),
@@ -194,12 +194,13 @@ pub async fn register(payload: Json<RegisterRequest>) -> HttpResponse {
     tag = "Authentication"
 )]
 #[post("/refresh")]
-pub async fn refresh_token(req: HttpRequest, payload: Json<RefreshTokenRequest>) -> HttpResponse {
+pub async fn refresh_token(req: HttpRequest, payload: Option<Json<RefreshTokenRequest>>) -> HttpResponse {
     // Try to get token from cookie first, then from request body
     let token = req
         .cookie("refresh_token")
         .map(|c| c.value().to_owned())
-        .unwrap_or_else(|| payload.0.refresh_token.clone());
+        .or_else(|| payload.map(|p| p.0.refresh_token.clone()))
+        .unwrap_or_default();
     
     if token.is_empty() {
         return ApiError::InvalidToken.error_response();

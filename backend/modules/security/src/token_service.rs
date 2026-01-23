@@ -6,7 +6,7 @@ use db::db::db::get_db;
 use entity::refresh_token::{self, ActiveModel, Entity as RefreshToken};
 use error::error::ApiError;
 use rand::Rng;
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set, sea_query::Expr};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -115,18 +115,28 @@ pub async fn create_refresh_token_with_family(
     let expires_at = now + Duration::days(config.refresh_token_ttl_days);
     let token_id = Uuid::new_v4();
     
-    let new_token = ActiveModel {
-        id: Set(token_id),
-        player_id: Set(player_id),
-        token_hash: Set(token_hash),
-        family_id: Set(family_id),
-        expires_at: Set(expires_at.into()),
-        is_revoked: Set(false),
-        created_at: Set(now.into()),
-        used_at: Set(None),
-    };
+    // Use raw SQL to ensure UUID format consistency with player table
+    // All UUIDs stored as hyphenated strings
+    use sea_orm::{Statement, ConnectionTrait, Value, DbBackend};
     
-    new_token.insert(&db).await.map_err(ApiError::DatabaseError)?;
+    let sql = "INSERT INTO refresh_tokens (id, player_id, token_hash, family_id, expires_at, is_revoked, created_at, used_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+    let params = vec![
+        Value::from(token_id.to_string()),
+        Value::from(player_id.to_string()),
+        Value::from(token_hash.clone()),
+        Value::from(family_id.to_string()),
+        Value::from(expires_at.to_rfc3339()),
+        Value::from(false),
+        Value::from(now.to_rfc3339()),
+        Value::from(None::<String>), // used_at is NULL
+    ];
+    
+    let stmt = Statement::from_sql_and_values(DbBackend::Sqlite, sql, params);
+    
+    db.execute(stmt).await.map_err(|e| {
+        eprintln!("Refresh token insert failed: {:?}", e);
+        ApiError::DatabaseError(e)
+    })?;
     
     Ok(TokenRotationResult {
         new_token: token,
@@ -138,43 +148,52 @@ pub async fn create_refresh_token_with_family(
 
 /// Checks if a token is valid, reused, expired, or revoked.
 pub async fn verify_refresh_token(token: &str) -> TokenVerificationResult {
-    let db = match get_db().await {
-        db => db,
-    };
-    
+    let db = get_db().await;
     let token_hash = hash_token(token);
     
-    let stored_token = RefreshToken::find()
-        .filter(refresh_token::Column::TokenHash.eq(&token_hash))
-        .one(&db)
-        .await;
+    // Use raw SQL to avoid UUID decoding issues
+    use sea_orm::{Statement, ConnectionTrait, Value, DbBackend};
     
-    match stored_token {
-        Ok(Some(token_record)) => {
+    let sql = "SELECT id, player_id, family_id, expires_at, is_revoked, used_at FROM refresh_tokens WHERE token_hash = ?";
+    let stmt = Statement::from_sql_and_values(DbBackend::Sqlite, sql, vec![Value::from(token_hash)]);
+    
+    match db.query_one(stmt).await {
+        Ok(Some(row)) => {
+            // Parse fields manually
+            let id_str: String = match row.try_get("", "id") {
+                Ok(s) => s,
+                Err(_) => return TokenVerificationResult::NotFound,
+            };
+            let id = match Uuid::parse_str(&id_str) {
+                Ok(u) => u,
+                Err(_) => return TokenVerificationResult::NotFound,
+            };
+            let player_id_str: String = row.try_get("", "player_id").unwrap_or_default();
+            let player_id = Uuid::parse_str(&player_id_str).unwrap_or(Uuid::nil());
+            let family_id_str: String = row.try_get("", "family_id").unwrap_or_default();
+            let family_id = Uuid::parse_str(&family_id_str).unwrap_or(Uuid::nil());
+            let is_revoked: bool = row.try_get("", "is_revoked").unwrap_or(false);
+            let used_at: Option<String> = row.try_get("", "used_at").ok();
+            let expires_at_str: String = row.try_get("", "expires_at").unwrap_or_default();
+            
             // Check if token is revoked
-            if token_record.is_revoked {
+            if is_revoked {
                 return TokenVerificationResult::Revoked;
             }
             
             // Check if token is expired
-            let now = Utc::now();
-            if token_record.expires_at.with_timezone(&Utc) < now {
-                return TokenVerificationResult::Expired;
+            if let Ok(expires_at) = chrono::DateTime::parse_from_rfc3339(&expires_at_str) {
+                if expires_at.with_timezone(&Utc) < Utc::now() {
+                    return TokenVerificationResult::Expired;
+                }
             }
             
             // Check if token has been used before (THEFT DETECTION)
-            if token_record.used_at.is_some() {
-                return TokenVerificationResult::Reused {
-                    family_id: token_record.family_id,
-                    player_id: token_record.player_id,
-                };
+            if used_at.is_some() && !used_at.as_ref().unwrap().is_empty() {
+                return TokenVerificationResult::Reused { family_id, player_id };
             }
             
-            TokenVerificationResult::Valid {
-                player_id: token_record.player_id,
-                family_id: token_record.family_id,
-                token_id: token_record.id,
-            }
+            TokenVerificationResult::Valid { player_id, family_id, token_id: id }
         }
         Ok(None) => TokenVerificationResult::NotFound,
         Err(_) => TokenVerificationResult::NotFound,
@@ -184,16 +203,39 @@ pub async fn verify_refresh_token(token: &str) -> TokenVerificationResult {
 /// Marks a token as used - enables theft detection on reuse.
 pub async fn mark_token_used(token_id: Uuid) -> Result<(), ApiError> {
     let db = get_db().await;
+    use sea_orm::{Statement, ConnectionTrait, Value, DbBackend};
     
-    let token = RefreshToken::find_by_id(token_id)
-        .one(&db)
-        .await
-        .map_err(ApiError::DatabaseError)?;
+    // Atomic update: only update if used_at is NULL
+    let sql = "UPDATE refresh_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = ? AND used_at IS NULL";
+    let stmt = Statement::from_sql_and_values(DbBackend::Sqlite, sql, vec![Value::from(token_id.to_string())]);
     
-    if let Some(token_record) = token {
-        let mut active_model: ActiveModel = token_record.into();
-        active_model.used_at = Set(Some(Utc::now().into()));
-        active_model.update(&db).await.map_err(ApiError::DatabaseError)?;
+    let result = db.execute(stmt).await.map_err(ApiError::DatabaseError)?;
+    
+    if result.rows_affected() == 0 {
+        // Update failed - either token doesn't exist OR it was already used
+        // Check which case it is
+        let check_sql = "SELECT used_at FROM refresh_tokens WHERE id = ?";
+        let check_stmt = Statement::from_sql_and_values(DbBackend::Sqlite, check_sql, vec![Value::from(token_id.to_string())]);
+        
+        match db.query_one(check_stmt).await {
+            Ok(Some(row)) => {
+                let used_at: Option<String> = row.try_get("", "used_at").ok();
+                if used_at.is_some() && !used_at.as_ref().unwrap().is_empty() {
+                    // TOKEN REUSE DETECTED! Get family_id and invalidate
+                    let family_sql = "SELECT family_id FROM refresh_tokens WHERE id = ?";
+                    let family_stmt = Statement::from_sql_and_values(DbBackend::Sqlite, family_sql, vec![Value::from(token_id.to_string())]);
+                    if let Ok(Some(frow)) = db.query_one(family_stmt).await {
+                        let family_id_str: String = frow.try_get("", "family_id").unwrap_or_default();
+                        if let Ok(family_id) = Uuid::parse_str(&family_id_str) {
+                            let _ = invalidate_family(family_id).await;
+                        }
+                    }
+                    return Err(ApiError::TokenTheftDetected);
+                }
+            }
+            _ => {}
+        }
+        return Err(ApiError::InvalidToken);
     }
     
     Ok(())
@@ -202,23 +244,13 @@ pub async fn mark_token_used(token_id: Uuid) -> Result<(), ApiError> {
 /// Nukes an entire token family - called when theft is detected.
 pub async fn invalidate_family(family_id: Uuid) -> Result<u64, ApiError> {
     let db = get_db().await;
+    use sea_orm::{Statement, ConnectionTrait, Value, DbBackend};
     
-    let tokens = RefreshToken::find()
-        .filter(refresh_token::Column::FamilyId.eq(family_id))
-        .filter(refresh_token::Column::IsRevoked.eq(false))
-        .all(&db)
-        .await
-        .map_err(ApiError::DatabaseError)?;
+    let sql = "UPDATE refresh_tokens SET is_revoked = 1 WHERE family_id = ? AND is_revoked = 0";
+    let stmt = Statement::from_sql_and_values(DbBackend::Sqlite, sql, vec![Value::from(family_id.to_string())]);
     
-    let mut count = 0u64;
-    for token_record in tokens {
-        let mut active_model: ActiveModel = token_record.into();
-        active_model.is_revoked = Set(true);
-        active_model.update(&db).await.map_err(ApiError::DatabaseError)?;
-        count += 1;
-    }
-    
-    Ok(count)
+    let result = db.execute(stmt).await.map_err(ApiError::DatabaseError)?;
+    Ok(result.rows_affected())
 }
 
 /// The main rotation logic: verify old token, mint new one, mark old as used.
