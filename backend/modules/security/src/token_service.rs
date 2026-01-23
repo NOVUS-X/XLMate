@@ -32,7 +32,14 @@ impl TokenConfig {
             .unwrap_or(30);
             
         let jwt_secret = std::env::var("JWT_SECRET")
-            .unwrap_or_else(|_| "default-secret-change-me".to_string());
+            .unwrap_or_else(|_| {
+                // I enforce security in production - no default secrets allowed!
+                #[cfg(not(debug_assertions))]
+                panic!("FATAL: JWT_SECRET environment variable must be set in production mode!");
+                
+                // Only allow default in development/debug mode
+                "default-secret-change-me".to_string()
+            });
             
         Self {
             refresh_token_ttl_days,
@@ -47,6 +54,7 @@ pub struct TokenRotationResult {
     pub new_token: String,
     pub token_id: Uuid,
     pub expires_at: chrono::DateTime<Utc>,
+    pub player_id: Uuid,
 }
 
 /// What the token verification found - valid, stolen, expired, etc.
@@ -124,6 +132,7 @@ pub async fn create_refresh_token_with_family(
         new_token: token,
         token_id,
         expires_at,
+        player_id,
     })
 }
 

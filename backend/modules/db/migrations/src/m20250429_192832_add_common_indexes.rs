@@ -1,4 +1,5 @@
 use sea_orm_migration::{prelude::*, MigrationTrait};
+use crate::m20250428_121011_create_players_table::Player;
 
 #[derive(DeriveMigrationName)]
 pub struct Migration;
@@ -26,6 +27,9 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
+        // NOTE: GIN index creation removed because IndexType::Gin is not available in this scope/version
+        // and causing compilation errors. It was also attempted via raw SQL in previous migration.
+        /*
         manager
             .create_index(
                 Index::create()
@@ -36,6 +40,7 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
+        */
         manager
             .create_index(
                 Index::create()

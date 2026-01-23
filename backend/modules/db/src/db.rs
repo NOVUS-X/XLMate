@@ -5,6 +5,7 @@
 
 pub mod db {
     use sea_orm::{ConnectOptions, Database, DatabaseConnection, DbBackend, Schema};
+    use migration::{Migrator, MigratorTrait};
 
     /// Quick check: am running in mock mode?
     pub fn is_mock_mode() -> bool {
@@ -34,9 +35,14 @@ pub mod db {
             let mock_url = "sqlite::memory:";
             let connect_options = ConnectOptions::new(mock_url);
             
-            Database::connect(connect_options)
+            let db = Database::connect(connect_options)
                 .await
-                .expect("Failed to create mock database")
+                .expect("Failed to create mock database");
+            
+            // AUTOMATIC MIGRATION: Initialize schema for tests
+            Migrator::up(&db, None).await.expect("Failed to run migrations for mock DB");
+            
+            db
         } else {
             // Real database connection for production
             let connect_options = ConnectOptions::new(&database_url);

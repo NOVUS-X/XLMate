@@ -210,28 +210,23 @@ pub async fn refresh_token(req: HttpRequest, payload: Json<RefreshTokenRequest>)
         Ok(rotation_result) => {
             let config = TokenConfig::from_env();
             
-            // We need to get the player_id from the token verification
-            // For now, extract from the old token's claims
-            match verify_refresh_token(&token).await {
-                TokenVerificationResult::Valid { player_id, .. } |
-                TokenVerificationResult::Reused { player_id, .. } => {
-                    // Generate new access token
-                    let (access_token, expires_in) = match generate_access_token(player_id, &config) {
-                        Ok(t) => t,
-                        Err(e) => return e.error_response(),
-                    };
-                    
-                    // Return new tokens
-                    HttpResponse::Ok()
-                        .cookie(create_refresh_cookie(&rotation_result.new_token, config.refresh_token_ttl_days))
-                        .json(json!({
-                            "access_token": access_token,
-                            "token_type": "Bearer",
-                            "expires_in": expires_in
-                        }))
-                }
-                _ => ApiError::InvalidToken.error_response(),
-            }
+            // I use the player_id directly from the rotation result - no need to re-verify!
+            let player_id = rotation_result.player_id;
+            
+            // Generate new access token
+            let (access_token, expires_in) = match generate_access_token(player_id, &config) {
+                Ok(t) => t,
+                Err(e) => return e.error_response(),
+            };
+            
+            // Return new tokens
+            HttpResponse::Ok()
+                .cookie(create_refresh_cookie(&rotation_result.new_token, config.refresh_token_ttl_days))
+                .json(json!({
+                    "access_token": access_token,
+                    "token_type": "Bearer",
+                    "expires_in": expires_in
+                }))
         }
         Err(e) => {
             // Clear the cookie on error
