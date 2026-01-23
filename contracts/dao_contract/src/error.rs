@@ -14,10 +14,6 @@ pub enum DaoError {
     AlreadyVotedForProposal = 8,
     ProposalVotingEnded = 9,
     ProposalVotingNotEnded = 10,
-    NoStakesFoundForUser = 11,
+    UserBalanceIsEmpty = 11,
     ProposalAlreadyExecuted = 12,
-    InsufficientStake = 13,
-    InvalidAmount = 14,
-    QuorumNotMet = 15,
-    NoStakesFoundInDao = 16,
 }

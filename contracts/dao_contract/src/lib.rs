@@ -48,12 +48,6 @@ impl DaoContract {
 
         proposer.require_auth();
 
-        let total_staked = Self::_get_total_staked(&env);
-
-        if total_staked == 0 {
-            return Err(DaoError::NoStakesFoundInDao);
-        }
-
         let next_proposal_id = Self::_get_proposal_count(&env);
 
         let config = Self::_get_config(&env).ok_or(DaoError::ConfigNotFound)?;
@@ -64,9 +58,11 @@ impl DaoContract {
             return Err(DaoError::InvalidDaoConfiguration);
         }
 
-        let user_shares = Self::_get_shares(&env, &proposer);
+        let dao_token_client = token::Client::new(&env, &config.dao_token);
 
-        if user_shares < config.min_threshold {
+        let user_balance = dao_token_client.balance(&proposer);
+
+        if user_balance < config.min_threshold {
             return Err(DaoError::MinThresholdNotMet);
         }
 
@@ -121,16 +117,20 @@ impl DaoContract {
             return Err(DaoError::AlreadyVotedForProposal);
         }
 
-        let user_shares = Self::_get_shares(&env, &user);
+        let config = Self::_get_config(&env).ok_or(DaoError::ConfigNotFound)?;
 
-        if user_shares == 0 {
-            return Err(DaoError::NoStakesFoundForUser);
+        let dao_token_client = token::Client::new(&env, &config.dao_token);
+
+        let user_balance = dao_token_client.balance(&user);
+
+        if user_balance == 0 {
+            return Err(DaoError::UserBalanceIsEmpty);
         }
 
         match vote_action {
-            VoteAction::Abstain => proposal.votes_abstain += user_shares,
-            VoteAction::Against => proposal.votes_against += user_shares,
-            VoteAction::For => proposal.votes_for += user_shares,
+            VoteAction::Abstain => proposal.votes_abstain += user_balance,
+            VoteAction::Against => proposal.votes_against += user_balance,
+            VoteAction::For => proposal.votes_for += user_balance,
         }
 
         Self::_save_proposal(&env, proposal_id, &proposal);
@@ -168,9 +168,7 @@ impl DaoContract {
 
         let total_votes = proposal.votes_for + proposal.votes_against + proposal.votes_abstain;
 
-        let total_staked = Self::_get_total_staked(&env);
-
-        if total_votes == 0 || total_staked == 0 {
+        if total_votes == 0 {
             proposal.status = Status::Failed;
 
             Self::_save_proposal(&env, proposal_id, &proposal);
@@ -180,11 +178,14 @@ impl DaoContract {
             return Ok(());
         }
 
-        let quorum_met = total_votes * 100 >= (config.quorum as i128) * total_staked;
+        // @note: we're unable to get the total supply of tokens meaning a staking mechanism would be needed
+        // to know how much of the tokens are available to check for the quorum
+        // that way instead of using amount of tokens the user has,
+        // their stakes will serve as the number of votes they have
+        // let vote_percentage = (total_votes * (PRECISION as i128) / total_staked) as u32;
+        // to know the participation percentage which must be greater than quorum
 
-        let vote_passed = proposal.votes_for > proposal.votes_against;
-
-        if vote_passed && quorum_met {
+        if proposal.votes_for > proposal.votes_against {
             match proposal.action.clone() {
                 ProposalAction::UpdateDaoToken(new_token) => config.dao_token = new_token,
                 ProposalAction::UpdateFee(new_fee) => config.protocol_fee = new_fee,
@@ -233,79 +234,6 @@ impl DaoContract {
 
     pub fn get_proposal_count(env: Env) -> Result<u32, DaoError> {
         Ok(Self::_get_proposal_count(&env))
-    }
-
-    pub fn stake(env: Env, user: Address, amount: i128) -> Result<(), DaoError> {
-        let is_initialized = Self::_check_initialization(&env);
-
-        if !is_initialized {
-            return Err(DaoError::NotInitialized);
-        }
-
-        user.require_auth();
-
-        if amount <= 0 {
-            return Err(DaoError::InvalidAmount);
-        }
-
-        let config = Self::_get_config(&env).ok_or(DaoError::ConfigNotFound)?;
-
-        Self::_deposit_to_dao(&env, config.dao_token, user.clone(), amount);
-
-        let current_shares = Self::_get_shares(&env, &user);
-        let new_shares = current_shares + amount;
-        Self::_put_shares(&env, &user, new_shares);
-
-        let total_staked = Self::_get_total_staked(&env);
-        Self::_put_total_staked(&env, total_staked + amount);
-
-        let timestamp = env.ledger().timestamp();
-        events::emit_staked(&env, &user, amount, new_shares, timestamp);
-
-        Ok(())
-    }
-
-    pub fn unstake(env: Env, user: Address, amount: i128) -> Result<(), DaoError> {
-        let is_initialized = Self::_check_initialization(&env);
-
-        if !is_initialized {
-            return Err(DaoError::NotInitialized);
-        }
-
-        user.require_auth();
-
-        if amount <= 0 {
-            return Err(DaoError::InvalidAmount);
-        }
-
-        let current_shares = Self::_get_shares(&env, &user);
-
-        if current_shares < amount {
-            return Err(DaoError::InsufficientStake);
-        }
-
-        let config = Self::_get_config(&env).ok_or(DaoError::ConfigNotFound)?;
-
-        let new_shares = current_shares - amount;
-        Self::_put_shares(&env, &user, new_shares);
-
-        let total_staked = Self::_get_total_staked(&env);
-        Self::_put_total_staked(&env, total_staked - amount);
-
-        Self::_withdraw_from_dao(&env, config.dao_token, user.clone(), amount);
-
-        let timestamp = env.ledger().timestamp();
-        events::emit_unstaked(&env, &user, amount, new_shares, timestamp);
-
-        Ok(())
-    }
-
-    pub fn get_user_shares(env: Env, user: Address) -> Result<i128, DaoError> {
-        Ok(Self::_get_shares(&env, &user))
-    }
-
-    pub fn get_total_staked(env: Env) -> Result<i128, DaoError> {
-        Ok(Self::_get_total_staked(&env))
     }
 }
 
@@ -378,42 +306,6 @@ impl DaoContract {
             ProposalAction::UpdateQuorum(quorum) => quorum > &0,
             ProposalAction::UpdateVotingPeriod(period) => period > &0,
         }
-    }
-
-    fn _get_shares(e: &Env, user: &Address) -> i128 {
-        e.storage()
-            .persistent()
-            .get(&DataKey::Shares(user.clone()))
-            .unwrap_or(0)
-    }
-
-    fn _put_shares(e: &Env, user: &Address, amount: i128) {
-        e.storage()
-            .persistent()
-            .set(&DataKey::Shares(user.clone()), &amount);
-    }
-
-    fn _get_total_staked(e: &Env) -> i128 {
-        e.storage()
-            .instance()
-            .get(&DataKey::TotalStaked)
-            .unwrap_or(0)
-    }
-
-    fn _put_total_staked(e: &Env, amount: i128) {
-        e.storage().instance().set(&DataKey::TotalStaked, &amount);
-    }
-
-    fn _get_dao_balance(e: &Env, contract: Address) -> i128 {
-        token::Client::new(e, &contract).balance(&e.current_contract_address())
-    }
-
-    fn _deposit_to_dao(e: &Env, token: Address, from: Address, amount: i128) {
-        token::Client::new(e, &token).transfer(&from, &e.current_contract_address(), &amount);
-    }
-
-    fn _withdraw_from_dao(e: &Env, token: Address, to: Address, amount: i128) {
-        token::Client::new(e, &token).transfer(&e.current_contract_address(), &to, &amount);
     }
 }
 
