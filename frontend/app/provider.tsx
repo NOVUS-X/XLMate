@@ -1,6 +1,6 @@
 // "use client";
 // import React, {  useEffect, } from "react";
-// import { useConnect, useAccount } from "@starknet-react/core";
+// Provider setup - wallet integration pending
 
 // export function Providers({ children }: { children: React.ReactNode }) {
 //   const { connectors, connectAsync } = useConnect({});

@@ -45,7 +45,7 @@ const WaitlistSection = () => {
       setIsSubmitted(true);
       // Store email in localStorage to remember the user signed up
       localStorage.setItem('waitlistEmail', trimmedEmail);
-    } catch (err) {
+    } catch {
       setError("Connection issue. Please try again.");
     } finally {
       setIsSubmitting(false);
@@ -148,7 +148,7 @@ const WaitlistSection = () => {
               </div>
               <h3 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-purple-400 mb-3">Welcome to XLMate!</h3>
               <p className="text-gray-300 mb-4">
-                You're now part of our exclusive community. We'll send you updates about early access and special NFT drops.
+                You&apos;re now part of our exclusive community. We&apos;ll send you updates about early access and special NFT drops.
               </p>
               <div className="flex justify-center">
                 <div className="inline-flex items-center px-4 py-2 rounded-full bg-purple-500/20 border border-purple-500/30">

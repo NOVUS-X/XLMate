@@ -36,6 +36,8 @@ export function GameSidebar({
   const [collapsed, setLocalCollapsed] = useState(propCollapsed);
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
   const [isSignInModalOpen, setIsSignInModalOpen] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _unused = [isWalletModalOpen, isSignInModalOpen];
   // const { address, status } = useAppContext();
 
   useEffect(() => {
@@ -43,10 +45,6 @@ export function GameSidebar({
   }, [collapsed, setCollapsed]);
   
   useEffect(() => setLocalCollapsed(propCollapsed), [propCollapsed]);
-
-  const truncateAddress = (addr: string) => {
-    return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
-  };
 
   // For mobile view, we'll use a Sheet component
   if (isMobileView) {

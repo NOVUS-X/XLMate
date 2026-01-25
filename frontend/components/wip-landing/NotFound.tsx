@@ -2,7 +2,6 @@
 import React from "react";
 import Link from "next/link";
 import Image from "next/image";
-import chessking from "../app/assets/chessking.jpeg";
 
 const NotFound = () => {
   return (
@@ -72,7 +71,7 @@ const NotFound = () => {
           404
         </h1>
         <p className="text-gray-400 text-xl mt-4">
-          Oops! The page you're looking for doesn't exist.
+          Oops! The page you&apos;re looking for doesn&apos;t exist.
         </p>
 
         {/* Floating Chess Image with Glowing Orbit */}
@@ -82,7 +81,7 @@ const NotFound = () => {
 
           {/* Chess Image */}
           <Image
-            src={chessking}
+            src="/assets/chessking.jpeg"
             alt="Chess King"
             width={200}
             height={200}

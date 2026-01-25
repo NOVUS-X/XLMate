@@ -19,11 +19,11 @@ export function Header() {
                     <Sheet>
                         <SheetTrigger asChild>
                             <Button variant="ghost" size="icon" className="md:hidden">
-                                <MenuIcon className="h-6 w-6" />
+                                <MenuIcon />
                             </Button>
                         </SheetTrigger>
                         <SheetContent side="left" className="p-0 w-64">
-                            <GameSidebar />
+                            <GameSidebar collapsed={false} setCollapsed={() => {}} isMobileView={true} />
                         </SheetContent>
                     </Sheet>
 
@@ -48,7 +48,7 @@ export function Header() {
                     </Button>
 
                     <Button variant="ghost" size="icon" className="md:hidden">
-                        <UserIcon className="h-6 w-6" />
+                        <UserIcon />
                     </Button>
                 </div>
             </div>

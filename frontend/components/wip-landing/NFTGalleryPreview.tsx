@@ -33,7 +33,7 @@ const NFTGalleryPreview: React.FC = () => {
         id: "nft-002",
         name: "Neural Queen",
         rarity: "Epic",
-        owner: "StarknetWhiz",
+        owner: "ChessArtist",
         price: "1.8 ETH",
         image: "/api/placeholder/300/300",
         description:

@@ -68,7 +68,7 @@ const LiveGamesStatistics: React.FC = () => {
     },
     {
       id: 4,
-      game: "Starknet Arena",
+      game: "Tournament Finale",
       players: "ZkPlayer vs L2Warrior",
       wager: 350,
       timeLeft: "5:36",
@@ -85,7 +85,7 @@ const LiveGamesStatistics: React.FC = () => {
     },
     {
       id: 2,
-      player: "StarknetPro",
+      player: "ChessProXL",
       game: "NFT Battles",
       prize: 275,
       time: "5 min ago",
@@ -140,7 +140,7 @@ const LiveGamesStatistics: React.FC = () => {
           <div className="h-1 w-24 bg-gradient-to-r from-blue-500 to-purple-500 mx-auto mb-6"></div>
           <p className="text-gray-300 max-w-2xl mx-auto text-lg">
             Real-time blockchain gaming metrics and ongoing matches on the
-            Starknet ecosystem
+            XLMate ecosystem
           </p>
         </div>
 

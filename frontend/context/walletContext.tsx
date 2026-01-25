@@ -8,8 +8,8 @@
 // //   useDisconnect,
 // //   useAccount,
 // //   useBalance,
-// // } from "@starknet-react/core";
-// // import type { Connector } from "@starknet-react/core";
+// } from blockchain provider;
+// // import type { Connector } from blockchain provider;
 // import DotPulseLoader from "../components/ui/DotPulseLoader";
 // import { STRK_TOKEN_ADDRESS } from "@/constants/tokens";
 
@@ -116,3 +116,12 @@
 //   }
 //   return context;
 // };
+
+// Placeholder implementation while wallet context is being developed
+export const useAppContext = () => {
+  return {
+    address: undefined,
+    status: "disconnected",
+    balance: undefined,
+  };
+};

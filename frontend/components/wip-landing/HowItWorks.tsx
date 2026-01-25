@@ -7,7 +7,7 @@ const HowItWorks = () => {
       id: 1,
       title: "Connect Wallet",
       description:
-        "Securely link your wallet to access the Starknet ecosystem and manage your assets.",
+        "Securely link your wallet to access decentralized gaming and manage your assets.",
       icon: <Wallet className="w-16 h-16 text-indigo-500" />,
     },
     {
@@ -64,7 +64,7 @@ const HowItWorks = () => {
           </h2>
           <div className="h-1 w-24 bg-gradient-to-r from-indigo-500 to-purple-500 mx-auto mb-6"></div>
           <p className="text-gray-300 max-w-2xl mx-auto text-lg">
-            Join the future of gaming on Starknet with our simple step-by-step
+            Join the future of gaming with our simple step-by-step
             process
           </p>
         </div>

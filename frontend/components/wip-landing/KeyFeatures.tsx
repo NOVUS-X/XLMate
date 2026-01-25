@@ -18,7 +18,7 @@ const KeyFeatures = () => {
       id: 1,
       title: "On-Chain Moves",
       description:
-        "Every chess move is recorded on Starknet blockchain with verifiable proof, ensuring complete transparency and immutability.",
+        "Every chess move is recorded on blockchain with verifiable proof, ensuring complete transparency and immutability.",
       icon: <Zap className="h-12 w-12 text-purple-500" />,
       image: "https://via.placeholder.com/800x600",
       color: "from-purple-500 to-blue-500",
@@ -86,7 +86,7 @@ const KeyFeatures = () => {
           </h2>
           <p className="text-gray-400 max-w-2xl mx-auto">
             Experience chess like never before with our Web3-powered platform on
-            Starknet, combining traditional gameplay with blockchain innovation.
+            XLMate, combining traditional gameplay with blockchain innovation.
           </p>
         </div>
 
