@@ -1,48 +1,17 @@
-[package]
-name = "modules"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-actix-web = "4"
-sea-orm = { version = "1.1.0", features = [
-  "sqlx-postgres",
-  "runtime-tokio-native-tls",
-  "macros",
-] }
-async-std = { version = "1", features = ["attributes", "tokio1"] }
-
-dotenv = "0.15.0"
-
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1"
-futures = "0.3"
-utoipa = { version = "5", features = ["uuid", "chrono"] }
-utoipa-actix-web = "0.1"
-utoipa-swagger-ui = { version = "9", features = ["actix-web"] }
-utoipa-redoc = { version = "3", features = ["actix-web"] }
-actix-cors = "0.7"
-uuid = { version = "1.8.0", features = ["serde", "v4"] }
-chrono = { version = "0.4", features = ["serde"] }
-validator = { version = "0.17.0", features = ["derive"] }
-rand = "0.8.5"
-
-
-
-api = { path = "api" }
-error = { path = "error" }
-
 [workspace]
-members = [".", "db", "db/migrations", "api", "dto", "service"]
-
-
-[dependencies.sea-orm-migration]
-version = "1.1.0"
-features = [
-  # Enable at least one `ASYNC_RUNTIME` and `DATABASE_DRIVER` feature if you want to run migration via CLI.
-  # View the list of supported features at https://www.sea-ql.org/SeaORM/docs/install-and-config/database-and-async-runtime.
-  # e.g.
-  "runtime-tokio-native-tls", # `ASYNC_RUNTIME` feature
-  "sqlx-postgres",            # `DATABASE_DRIVER` feature
+resolver = "2"
+members = [
+    "api",
+    "db",
+    "db/entity",
+    "db/migrations",
+    "dto",
+    "error",
+    "service",
+    "security",
+    "chess",
+    "challenge",
+    "tournament",
 ]
+
 

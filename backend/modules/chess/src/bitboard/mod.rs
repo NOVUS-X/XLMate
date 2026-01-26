@@ -1,2 +1,2 @@
-pub mod Board;
-pub mod Bitboard; 
+pub mod board;
+pub mod bitboard; 

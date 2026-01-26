@@ -18,6 +18,7 @@ utoipa-swagger-ui = { version = "9", features = ["actix-web"] }
 validator = { version = "0.16", features = ["derive"] }
 validator_types = "0.16"
 jsonwebtoken = "9.3.1"
+sea-orm = { version = "1.1.0", features = [ "sqlx-postgres", "runtime-tokio-native-tls", "macros" ] }
 db = { path = "../db" }
 dto = { path = "../dto" }
 service = { path = "../service" }
@@ -25,4 +26,5 @@ error = { path = "../error" }
 security = { path = "../security" }
 actix-cors = "0.7.0"
 utoipa-redoc = { version = "3", features = ["actix-web"] }
-entity = { path = "../db/entity", package = "db_entity" }
+db_entity = { path = "../db/entity" }
+

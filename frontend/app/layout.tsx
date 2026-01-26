@@ -3,7 +3,7 @@ import "./globals.css";
 import ClientRoot from "@/components/ClientRoot";
 // import { AppProvider } from "@/context/walletContext";
 import "primereact/resources/themes/lara-light-cyan/theme.css";
-// import { StarknetProvider } from "@/components/utils/Provider";
+// Provider import - wallet setup pending
 // import { Providers } from "./provider";
 
 export const metadata: Metadata = {
@@ -19,13 +19,13 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="antialiased font-rowdies bg-background text-foreground">
-        {/* <StarknetProvider> */}
+        {/* <Provider> */}
           {/* <AppProvider> */}
             {/* <Providers> */}
             <ClientRoot>{children}</ClientRoot>
             {/* </Providers> */}
           {/* </AppProvider> */}
-        {/* </StarknetProvider> */}
+        {/* </Provider> */}
       </body>
     </html>
   );

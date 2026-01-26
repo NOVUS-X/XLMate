@@ -1,152 +1,115 @@
-// src/server.rs
+//! XLMate API Server Configuration
+//!
+//! This module sets up and configures the Actix-web server with all routes,
+//! middleware, database connections, and authentication.
 
-use actix_web::{App, HttpResponse, HttpServer, Responder, web};
+use actix_web::{web, App, HttpResponse, HttpServer, Responder};
 use actix_cors::Cors;
 use dotenv::dotenv;
-use error::error::custom_json_error;
-use utoipa_swagger_ui::SwaggerUi;
-use utoipa_redoc::Redoc;
+use sea_orm::Database;
 use std::env;
-use security::JwtAuthMiddleware;
-use crate::players::{add_player, delete_player, find_player_by_id, update_player};
-use crate::games::{create_game, get_game, make_move, list_games, join_game, abandon_game};
-use crate::auth::{login, register, refresh_token, logout};
-use crate::ai::{get_ai_suggestion, analyze_position};
-use crate::ws::{LobbyState, ws_route};
 
-mod openapi;
-use openapi::ApiDoc;
+use security::{JwtService};
 
-/// Simple health-check endpoint
+// Import route handlers
+use crate::auth::{login, register};
+
+/// Health check endpoint
 async fn health() -> impl Responder {
-    HttpResponse::Ok().body("OK")
+    HttpResponse::Ok().json(serde_json::json!({"status": "ok"}))
 }
 
-/// Sample "hello" endpoint
+/// Welcome endpoint
 async fn greet() -> impl Responder {
-    HttpResponse::Ok().body("Welcome to StarkMate API")
+    HttpResponse::Ok().json(serde_json::json!({"message": "Welcome to XLMate API"}))
 }
 
+/// Main server initialization function
 pub async fn main() -> std::io::Result<()> {
-    let openapi = ApiDoc::openapi();
-
-    // Load .env variables (e.g., DATABASE_URL, SERVER_ADDR)
+    // Load environment variables from .env file
     dotenv().ok();
 
-    // Read server address from env or default
-    let server_addr = env::var("SERVER_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".to_string());
-    
-    // Get JWT secret key from environment or use a default (for development only)
-    let jwt_secret = env::var("JWT_SECRET_KEY").unwrap_or_else(|_| "development_secret_key".to_string());
-
-    // Initialize logger (env_logger controlled via RUST_LOG)
+    // Initialize logger
     env_logger::init();
 
-    println!("Starting StarkMate server at http://{}", &server_addr);
-    
-    // CORS configuration notice
-    println!("CORS configuration: Set ALLOWED_ORIGINS env var with comma-separated origins");
-    println!("Example: ALLOWED_ORIGINS=http://localhost:3000,https://xlmate.com");
-    println!("If not set, all origins will be allowed (development mode only)");
+    // Load configuration from environment
+    let server_addr = env::var("SERVER_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".to_string());
+    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set in .env");
+    let jwt_secret = env::var("JWT_SECRET_KEY")
+        .unwrap_or_else(|_| "xlmate_dev_secret_key_change_in_production".to_string());
+    let jwt_expiration = env::var("JWT_EXPIRATION_SECS")
+        .unwrap_or_else(|_| "3600".to_string())
+        .parse::<usize>()
+        .unwrap_or(3600);
 
-    // Create a shared LobbyState actor
-    let lobby = LobbyState::new().start();
+    eprintln!("Initializing XLMate Backend Server");
+    eprintln!("Server address: {}", server_addr);
 
+    // Connect to database
+    let db = match Database::connect(&database_url).await {
+        Ok(conn) => {
+            eprintln!("Database connection successful");
+            conn
+        }
+        Err(e) => {
+            eprintln!("Failed to connect to database: {}", e);
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Database connection failed",
+            ));
+        }
+    };
+
+    // Initialize JWT service
+    let jwt_service = JwtService::new(jwt_secret.clone(), jwt_expiration);
+
+    eprintln!("Starting HTTP server on {}", server_addr);
+
+    // Start HTTP server
     HttpServer::new(move || {
-        // Configure CORS middleware with environment variables for flexibility
+        let db = db.clone();
+        let jwt_service = jwt_service.clone();
+        let jwt_secret = jwt_secret.clone();
+
+        // Configure CORS
         let cors = {
             let mut cors = Cors::default()
                 .allow_any_method()
                 .allow_any_header()
                 .max_age(3600);
-            
-            // Get allowed origins from environment variable, fallback to all origins in development
+
             if let Ok(allowed_origins) = env::var("ALLOWED_ORIGINS") {
-                // Parse comma-separated list of allowed origins
                 let origins: Vec<&str> = allowed_origins.split(',').collect();
                 for origin in origins {
                     cors = cors.allowed_origin(origin.trim());
                 }
-                println!("CORS configured with specific origins: {}", allowed_origins);
+                eprintln!("CORS configured with specific origins");
             } else {
-                // In development, allow all origins by default
                 cors = cors.allow_any_origin();
-                println!("CORS configured to allow any origin (development mode)");
+                eprintln!("CORS configured to allow any origin (development mode)");
             }
-            
+
             cors
         };
-        
-        // Clone the JWT secret for use in middleware
-        let jwt_secret = jwt_secret.clone();
 
         App::new()
-            // Add CORS middleware first
+            // Global middleware
             .wrap(cors)
-            // Add your app_data
-            .app_data(web::JsonConfig::default().error_handler(custom_json_error))
-            // WebSocket route mounting
-            .app_data(web::Data::new(lobby.clone()))
-            .route("/ws/{game_id}", web::get().to(ws_route))
-            // Register your routes
+            // App data
+            .app_data(web::Data::new(db.clone()))
+            .app_data(web::Data::new(jwt_service.clone()))
+            // Health check
             .route("/health", web::get().to(health))
             .route("/", web::get().to(greet))
-            // Player routes
-            .service(
-                web::scope("/v1/players")
-                    .service(add_player)
-                    .service(find_player_by_id)
-                    .service(update_player)
-                    .service(delete_player),
-            )
-            // Game routes
-            .service(
-                web::scope("/v1/games")
-                    .service(create_game)
-                    .service(get_game)
-                    .service(list_games)
-                    .service(join_game)
-                    .route("/{id}/move", web::put().to(make_move))
-                    .service(abandon_game),
-            )
-            // Auth routes
+            // Authentication routes (public)
             .service(
                 web::scope("/v1/auth")
-                    .service(login)
                     .service(register)
-                    .service(refresh_token)
-                    // Protected route with JWT authentication
-                    .service(
-                        web::scope("/protected")
-                            .wrap(JwtAuthMiddleware::new(jwt_secret.clone()))
-                            .service(logout)
-                    ),
+                    .service(login),
             )
-            // AI routes
-            .service(
-                web::scope("/v1/ai")
-                    .service(get_ai_suggestion)
-                    .service(analyze_position),
-            )
-            // Swagger UI integration
-            .service(
-                SwaggerUi::new("/api/docs/{_:.*}")
-                    .url("/api/docs/openapi.json", openapi.clone())
-                    .config(utoipa_swagger_ui::Config::default().try_it_out_enabled(true))
-            )
-            // ReDoc integration (alternative documentation UI)
-            .service(
-                Redoc::new("/api/redoc")
-                    .url("/api/docs/openapi.json", openapi.clone())
-            )
-            // WebSocket documentation as static HTML
-            .route("/api/docs/websocket", web::get().to(|| async {
-                HttpResponse::Ok()
-                    .content_type("text/markdown")
-                    .body(openapi::websocket_documentation())
-            }))
     })
     .bind(&server_addr)?
     .run()
     .await
 }
+

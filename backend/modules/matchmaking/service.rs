@@ -82,7 +82,9 @@ impl MatchmakingService {
         let invite_entry = queue.private_invites.iter()
             .find(|(_, req)| req.id == inviter_request_id);
 
-        if let Some((invite_address, invite_request)) = invite_entry.cloned() {
+        if let Some((invite_address, invite_request)) = invite_entry {
+            let invite_address = invite_address.clone();
+            let invite_request = invite_request.clone();
             queue.private_invites.remove(&invite_address);
 
             let match_id = Uuid::new_v4();

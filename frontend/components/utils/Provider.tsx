@@ -1,16 +1,12 @@
 // "use client";
 // import React from "react";
-// import { sepolia, mainnet } from "@starknet-react/chains";
+// Wallet provider configuration - implementation pending
 // import {
-//   StarknetConfig,
 //   publicProvider,
-//   argent,
-//   braavos,
-//   useInjectedConnectors,
 //   voyager,
-// } from "@starknet-react/core";
+// } from blockchain provider;
 
-// export function StarknetProvider({ children }: { children: React.ReactNode }) {
+// export function Provider({ children }: { children: React.ReactNode }) {
 //   const { connectors } = useInjectedConnectors({
 //     recommended: [
 //       argent(),
@@ -19,13 +15,10 @@
 //   });
 
 //   return (
-//     <StarknetConfig
-//       chains={[mainnet, sepolia]}
-//       provider={publicProvider()}
-//       connectors={connectors}
-//       explorer={voyager}
+//     <Provider
+//       config={{}}
 //     >
 //       {children}
-//     </StarknetConfig>
+//     </Provider>
 //   );
 // }

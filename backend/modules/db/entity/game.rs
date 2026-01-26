@@ -2,11 +2,7 @@ use sea_orm::entity::prelude::*;
 use uuid::Uuid;
 use chrono::{DateTime, Utc};
 
-#[derive(Clone, Debug, DeriveEntityModel)]
-#[sea_orm(table_name = "games")]
-pub struct Model {
-    #[sea_orm(primary_key)]
-  #[derive(Debug, Clone, PartialEq, DeriveActiveEnum)]
+#[derive(Debug, Clone, PartialEq, DeriveActiveEnum)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "game_result")]
 pub enum GameResult {
     #[sea_orm(string_value = "ongoing")]
@@ -20,6 +16,13 @@ pub enum GameResult {
     #[sea_orm(string_value = "abandoned")]
     Abandoned,
 }
+
+#[derive(Clone, Debug, DeriveEntityModel)]
+#[sea_orm(table_name = "games")]
+pub struct Model {
+    #[sea_orm(primary_key)]
+    pub id: i32,
+    pub result: GameResult,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -36,3 +39,4 @@ impl Related<super::game_move::Entity> for Entity {
     }
 }
 impl ActiveModelBehavior for ActiveModel {}
+
