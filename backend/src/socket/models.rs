@@ -10,6 +10,9 @@ pub enum ClientMessage {
     SendMove(SendMovePayload),
     LeaveRoom(LeaveRoomPayload),
     RequestGameLog(RequestGameLogPayload),
+    OfferTakeback(OfferTakebackPayload),
+    AcceptTakeback(AcceptTakebackPayload),
+    RejectTakeback(RejectTakebackPayload),
 }
 
 #[derive(Debug, Deserialize)]
@@ -37,6 +40,24 @@ pub struct RequestGameLogPayload {
     pub room_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct OfferTakebackPayload {
+    pub room_id: String,
+    pub player_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AcceptTakebackPayload {
+    pub room_id: String,
+    pub player_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RejectTakebackPayload {
+    pub room_id: String,
+    pub player_id: String,
+}
+
 // Server message types
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type")]
@@ -60,6 +81,19 @@ pub enum ServerMessage {
     GameLog {
         room_id: String,
         moves: Vec<MoveRecord>,
+    },
+    TakebackOffered {
+        room_id: String,
+        requester_id: String,
+    },
+    TakebackAccepted {
+        room_id: String,
+        game_state: GameState,
+        moves: Vec<MoveRecord>,
+    },
+    TakebackRejected {
+        room_id: String,
+        by_player_id: String,
     },
     Error {
         code: String,
@@ -141,6 +175,7 @@ pub struct Room {
     pub players: Vec<Player>,
     pub game_state: Option<GameState>,
     pub moves: Vec<MoveRecord>,
+    pub pending_takeback: Option<String>,
 }
 
 impl Room {
@@ -150,6 +185,7 @@ impl Room {
             players: Vec::new(),
             game_state: None,
             moves: Vec::new(),
+            pending_takeback: None,
         }
     }
     

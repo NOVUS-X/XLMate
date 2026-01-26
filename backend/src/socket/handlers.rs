@@ -3,7 +3,16 @@ use serde_json::{from_str, to_string};
 use tokio::sync::broadcast;
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::game::{get_game_log, get_room_sender, join_room, leave_room, send_move};
+use crate::game::{
+    accept_takeback,
+    get_game_log,
+    get_room_sender,
+    join_room,
+    leave_room,
+    offer_takeback,
+    reject_takeback,
+    send_move,
+};
 use crate::models::{ClientMessage, ServerMessage};
 
 // Handle a client message
@@ -113,6 +122,66 @@ pub async fn handle_client_message(
                 Err(e) => {
                     let error_msg = ServerMessage::Error {
                         code: "LOG_ERROR".to_string(),
+                        message: e,
+                    };
+                    sender.send(Message::Text(to_string(&error_msg)?)).await?;
+                }
+            }
+        }
+        ClientMessage::OfferTakeback(payload) => {
+            log::info!(
+                "Player {} offering takeback in room {}",
+                payload.player_id,
+                payload.room_id
+            );
+
+            match offer_takeback(&payload.room_id, &payload.player_id) {
+                Ok(response) => {
+                    sender.send(Message::Text(to_string(&response)?)).await?;
+                }
+                Err(e) => {
+                    let error_msg = ServerMessage::Error {
+                        code: "TAKEBACK_OFFER_ERROR".to_string(),
+                        message: e,
+                    };
+                    sender.send(Message::Text(to_string(&error_msg)?)).await?;
+                }
+            }
+        }
+        ClientMessage::AcceptTakeback(payload) => {
+            log::info!(
+                "Player {} accepting takeback in room {}",
+                payload.player_id,
+                payload.room_id
+            );
+
+            match accept_takeback(&payload.room_id, &payload.player_id) {
+                Ok(response) => {
+                    sender.send(Message::Text(to_string(&response)?)).await?;
+                }
+                Err(e) => {
+                    let error_msg = ServerMessage::Error {
+                        code: "TAKEBACK_ACCEPT_ERROR".to_string(),
+                        message: e,
+                    };
+                    sender.send(Message::Text(to_string(&error_msg)?)).await?;
+                }
+            }
+        }
+        ClientMessage::RejectTakeback(payload) => {
+            log::info!(
+                "Player {} rejecting takeback in room {}",
+                payload.player_id,
+                payload.room_id
+            );
+
+            match reject_takeback(&payload.room_id, &payload.player_id) {
+                Ok(response) => {
+                    sender.send(Message::Text(to_string(&response)?)).await?;
+                }
+                Err(e) => {
+                    let error_msg = ServerMessage::Error {
+                        code: "TAKEBACK_REJECT_ERROR".to_string(),
                         message: e,
                     };
                     sender.send(Message::Text(to_string(&error_msg)?)).await?;

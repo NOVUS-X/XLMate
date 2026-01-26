@@ -171,6 +171,134 @@ pub fn get_game_log(room_id: &str) -> Result<ServerMessage, String> {
     Ok(response)
 }
 
+// Handle a takeback offer from a player.
+// Current behavior: only board state and move history are affected; clocks/time controls are not modified.
+pub fn offer_takeback(room_id: &str, player_id: &str) -> Result<ServerMessage, String> {
+    let mut state = GAME_STATE.lock().unwrap();
+
+    let room = state
+        .rooms
+        .get_mut(room_id)
+        .ok_or_else(|| "Room not found".to_string())?;
+
+    // Ensure player is in the room
+    if !room.players.iter().any(|p| p.id == player_id) {
+        return Err("Player not in room".to_string());
+    }
+
+    // Require at least one full move (two half-moves) to be able to take back
+    if room.moves.len() < 2 {
+        return Err("Not enough moves to take back".to_string());
+    }
+
+    // Only one pending takeback at a time
+    if room.pending_takeback.is_some() {
+        return Err("A takeback request is already pending".to_string());
+    }
+
+    room.pending_takeback = Some(player_id.to_string());
+
+    let response = ServerMessage::TakebackOffered {
+        room_id: room_id.to_string(),
+        requester_id: player_id.to_string(),
+    };
+
+    if let Some(sender) = state.message_senders.get(room_id) {
+        let _ = sender.send(response.clone());
+    }
+
+    Ok(response)
+}
+
+// Accept a pending takeback request and roll back one full move (two half-moves).
+pub fn accept_takeback(room_id: &str, player_id: &str) -> Result<ServerMessage, String> {
+    let mut state = GAME_STATE.lock().unwrap();
+
+    let room = state
+        .rooms
+        .get_mut(room_id)
+        .ok_or_else(|| "Room not found".to_string())?;
+
+    // Ensure player is in the room
+    if !room.players.iter().any(|p| p.id == player_id) {
+        return Err("Player not in room".to_string());
+    }
+
+    // There must be a pending takeback request
+    let requester_id = match &room.pending_takeback {
+        Some(id) => id.clone(),
+        None => return Err("No pending takeback request".to_string()),
+    };
+
+    // Only the other player (not requester) can accept
+    if requester_id == player_id {
+        return Err("Requester cannot accept their own takeback".to_string());
+    }
+
+    // Need at least one full move (two half-moves) to roll back
+    if room.moves.len() < 2 {
+        return Err("Not enough moves to take back".to_string());
+    }
+
+    // Truncate last two half-moves
+    let new_len = room.moves.len() - 2;
+    room.moves.truncate(new_len);
+
+    // Rebuild game state from initial position and remaining moves
+    let mut game_state = GameState::new_game();
+    for mv in &room.moves {
+        game_state.apply_move(&mv.move_notation)?;
+    }
+
+    room.game_state = Some(game_state.clone());
+    room.pending_takeback = None;
+
+    let response = ServerMessage::TakebackAccepted {
+        room_id: room_id.to_string(),
+        game_state,
+        moves: room.moves.clone(),
+    };
+
+    if let Some(sender) = state.message_senders.get(room_id) {
+        let _ = sender.send(response.clone());
+    }
+
+    Ok(response)
+}
+
+// Reject a pending takeback request.
+pub fn reject_takeback(room_id: &str, player_id: &str) -> Result<ServerMessage, String> {
+    let mut state = GAME_STATE.lock().unwrap();
+
+    let room = state
+        .rooms
+        .get_mut(room_id)
+        .ok_or_else(|| "Room not found".to_string())?;
+
+    // Ensure player is in the room
+    if !room.players.iter().any(|p| p.id == player_id) {
+        return Err("Player not in room".to_string());
+    }
+
+    // There must be a pending takeback request
+    if room.pending_takeback.is_none() {
+        return Err("No pending takeback request".to_string());
+    }
+
+    room.pending_takeback = None;
+
+    let response = ServerMessage::TakebackRejected {
+        room_id: room_id.to_string(),
+        by_player_id: player_id.to_string(),
+    };
+
+    if let Some(sender) = state.message_senders.get(room_id) {
+        let _ = sender.send(response.clone());
+    }
+
+    Ok(response)
+}
+
 // Database integration functions
 // These are placeholders for future implementation
 
