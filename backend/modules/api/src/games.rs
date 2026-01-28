@@ -3,7 +3,7 @@ use actix_web::{
     web::{self, Json, Path, Query},
 };
 use dto::{
-    games::{CreateGameRequest, GameDisplayDTO, MakeMoveRequest, JoinGameRequest, GameStatus, ListGamesQuery},
+    games::{CreateGameRequest, GameDisplayDTO, MakeMoveRequest, JoinGameRequest, GameStatus, ListGamesQuery, ImportGameRequest, ImportGameResponse},
     responses::{InvalidCredentialsResponse, NotFoundResponse},
 };
 use error::error::ApiError;
@@ -273,4 +273,82 @@ pub async fn abandon_game(id: Path<Uuid>) -> HttpResponse {
         "message": "Game abandoned successfully",
         "data": {}
     }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/games/import",
+    request_body = ImportGameRequest,
+    responses(
+        (status = 201, description = "Game imported successfully", body = ImportGameResponse),
+        (status = 400, description = "Invalid PGN format", body = InvalidCredentialsResponse),
+        (status = 422, description = "Illegal moves in PGN", body = InvalidCredentialsResponse)
+    ),
+    security(
+        ("jwt_auth" = [])
+    ),
+    tag = "Games"
+)]
+#[post("/import")]
+pub async fn import_game(
+    payload: Json<ImportGameRequest>,
+    db: web::Data<DatabaseConnection>,
+) -> HttpResponse {
+    // Validate request
+    if let Err(errors) = payload.0.validate() {
+        return ApiError::ValidationError(errors).error_response();
+    }
+
+    // Parse the PGN
+    let parsed = match chess::parse_pgn(&payload.pgn) {
+        Ok(p) => p,
+        Err(e) => {
+            return HttpResponse::BadRequest().json(ImportGameResponse {
+                success: false,
+                game_id: None,
+                white_player: String::new(),
+                black_player: String::new(),
+                result: String::new(),
+                move_count: 0,
+                final_fen: None,
+                error: Some(e.to_string()),
+            });
+        }
+    };
+
+    // Validate moves
+    let validated = match chess::validate_game(&parsed) {
+        Ok(v) => v,
+        Err(e) => {
+            let error_msg = e.to_string();
+            return HttpResponse::UnprocessableEntity().json(ImportGameResponse {
+                success: false,
+                game_id: None,
+                white_player: parsed.headers.white.clone(),
+                black_player: parsed.headers.black.clone(),
+                result: String::new(),
+                move_count: 0,
+                final_fen: None,
+                error: Some(error_msg),
+            });
+        }
+    };
+
+    // Convert PGN result to string
+    let result_str = validated.headers.result.to_pgn_string().to_string();
+
+    // TODO: Store in database with is_imported = true
+    // For now, we'll return a mock response with a generated UUID
+    let game_id = Uuid::new_v4();
+
+    HttpResponse::Created().json(ImportGameResponse {
+        success: true,
+        game_id: Some(game_id),
+        white_player: validated.headers.white,
+        black_player: validated.headers.black,
+        result: result_str,
+        move_count: validated.ply_count,
+        final_fen: Some(validated.final_fen),
+        error: None,
+    })
 }

@@ -52,6 +52,12 @@ pub struct Model {
     pub duration_sec: i32,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
+    /// Whether this game was imported from external PGN
+    #[sea_orm(default_value = false)]
+    pub is_imported: bool,
+    /// Original PGN string if game was imported
+    #[sea_orm(column_type = "Text", nullable)]
+    pub original_pgn: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

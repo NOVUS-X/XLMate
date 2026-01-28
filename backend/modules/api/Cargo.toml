@@ -26,6 +26,7 @@ dto = { path = "../dto" }
 service = { path = "../service" }
 error = { path = "../error" }
 security = { path = "../security" }
+chess = { path = "../chess" }
 actix-cors = "0.7.0"
 utoipa-redoc = { version = "3", features = ["actix-web"] }
 url = "=2.5.0"

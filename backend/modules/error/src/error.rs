@@ -12,6 +12,14 @@ pub enum ApiError {
     NotFound(String),
     ValidationError(ValidationErrors),
     PasswordHashError(Argon2HashError),
+    /// Error parsing PGN format
+    PgnParseError(String),
+    /// Illegal move detected in PGN
+    IllegalMoveError {
+        move_number: usize,
+        move_text: String,
+        reason: String,
+    },
 }
 
 impl From<DbErr> for ApiError {
@@ -75,6 +83,12 @@ impl fmt::Display for ApiError {
             ApiError::PasswordHashError(err) => {
                 write!(f, "Unable to hash password: {}", err.to_string())
             }
+            ApiError::PgnParseError(msg) => {
+                write!(f, "Invalid PGN format: {}", msg)
+            }
+            ApiError::IllegalMoveError { move_number, move_text, reason } => {
+                write!(f, "Illegal move at move {}: '{}' - {}", move_number, move_text, reason)
+            }
         }
     }
 }
@@ -101,6 +115,14 @@ impl ApiError {
             ApiError::PasswordHashError(_) => HttpResponse::InternalServerError().json(json!({
                 "error": self.to_string(),
                 "code":500
+            })),
+            ApiError::PgnParseError(_) => HttpResponse::BadRequest().json(json!({
+                "error": self.to_string(),
+                "code": 400
+            })),
+            ApiError::IllegalMoveError { .. } => HttpResponse::UnprocessableEntity().json(json!({
+                "error": self.to_string(),
+                "code": 422
             })),
         }
     }

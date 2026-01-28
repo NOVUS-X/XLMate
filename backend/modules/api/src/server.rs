@@ -11,7 +11,7 @@ use utoipa_swagger_ui::SwaggerUi;
 use utoipa_redoc::{Redoc, Servable};
 use actix::Actor;
 use crate::players::{add_player, delete_player, find_player_by_id, update_player};
-use crate::games::{create_game, get_game, make_move, list_games, join_game, abandon_game};
+use crate::games::{create_game, get_game, make_move, list_games, join_game, abandon_game, import_game};
 use crate::auth::{login, register, refresh, logout};
 use crate::ai::{get_ai_suggestion, analyze_position};
 use crate::ws::{LobbyState, ws_route};
@@ -154,7 +154,8 @@ pub async fn main() -> std::io::Result<()> {
                     .service(list_games)
                     .service(join_game)
                     .service(make_move)
-                    .service(abandon_game),
+                    .service(abandon_game)
+                    .service(import_game),
             )
             // Auth routes
             .service(
