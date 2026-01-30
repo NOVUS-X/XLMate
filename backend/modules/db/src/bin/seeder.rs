@@ -102,6 +102,8 @@ async fn main() -> Result<(), DbErr> {
             duration_sec: Set(duration_sec),
             created_at: Set(Utc::now().into()),
             updated_at: Set(Utc::now().into()),
+            is_imported: Set(false),
+            original_pgn: Set(None),
         };
 
         Game::insert(game).exec(&db).await?;
