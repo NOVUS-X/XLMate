@@ -20,7 +20,7 @@ impl EngineService {
     pub async fn get_suggestion(&self, fen: &str, depth: Option<u8>, time_limit_ms: Option<u32>) -> Result<EngineResult, EngineError> {
         // For now, we'll create a new engine instance for each request
         // In a real scenario, we might want to pool them
-        let mut engine = ProcessEngine::new(&self.engine_path).await?;
+        let mut engine: ProcessEngine = ProcessEngine::new(&self.engine_path).await?;
         engine.is_ready().await?;
         engine.set_position(fen).await?;
         

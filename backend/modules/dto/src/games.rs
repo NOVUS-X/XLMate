@@ -134,3 +134,37 @@ pub struct ListGamesQuery {
     #[schema(example = "MjAyNS0wNS0zMVQxMDowMDowMC4wMDAwMDBaLDEyM2U0NTY3LWU4OWItMTJkMy1hNDU2LTQyNjYxNDE3NDAwMA==")]
     pub cursor: Option<String>,
 }
+
+/// Request body for importing a game from PGN format
+#[derive(Debug, Serialize, Deserialize, ToSchema, Validate)]
+pub struct ImportGameRequest {
+    #[validate(length(min = 10, max = 50000, message = "PGN must be between 10 and 50000 characters"))]
+    #[schema(example = "[White \"Magnus Carlsen\"]\n[Black \"Hikaru Nakamura\"]\n[Result \"1-0\"]\n\n1. e4 e5 2. Nf3 Nc6 3. Bb5 1-0")]
+    pub pgn: String,
+}
+
+/// Response for a successful game import
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ImportGameResponse {
+    pub success: bool,
+    
+    #[schema(value_type = Option<String>, format = "uuid")]
+    pub game_id: Option<Uuid>,
+    
+    #[schema(example = "Magnus Carlsen")]
+    pub white_player: String,
+    
+    #[schema(example = "Hikaru Nakamura")]
+    pub black_player: String,
+    
+    #[schema(example = "white_win")]
+    pub result: String,
+    
+    #[schema(example = 42)]
+    pub move_count: usize,
+    
+    #[schema(example = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1")]
+    pub final_fen: Option<String>,
+    
+    pub error: Option<String>,
+}

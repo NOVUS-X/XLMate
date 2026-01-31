@@ -389,6 +389,7 @@ dependencies = [
  "actix-rt",
  "actix-web",
  "actix-web-actors",
+ "chess",
  "chrono",
  "db",
  "db_entity",
@@ -764,6 +765,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "btoi"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9dd6407f73a9b8b6162d8a2ef999fe6afd7cc15902ebf42c5cd296addf17e0ad"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.19.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -843,6 +853,11 @@ version = "0.1.0"
 [[package]]
 name = "chess"
 version = "0.1.0"
+dependencies = [
+ "regex",
+ "shakmaty",
+ "thiserror 1.0.69",
+]
 
 [[package]]
 name = "chrono"
@@ -2124,6 +2139,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b93853da6d84c2e3c7d730d6473e8817692dd89be387eb01b94d7f108ecb5b8c"
 
 [[package]]
+name = "nohash-hasher"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2bf50223579dc7cdcfb3bfcacf7069ff68243f8c363f62ffa99cf000a6b9c451"
+
+[[package]]
 name = "nonzero_ext"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3238,6 +3259,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "shakmaty"
+version = "0.27.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f414cadc4e727893d1a3b0dca62aaef4c1c821dcbd969f0b10a92e12d684d53a"
+dependencies = [
+ "arrayvec",
+ "bitflags",
+ "btoi",
+ "nohash-hasher",
+ "serde",
+]
+
+[[package]]
 name = "sharded-slab"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3823,6 +3857,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "serde",
+ "serde_json",
  "uuid",
 ]
 

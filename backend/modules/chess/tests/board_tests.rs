@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use chess::bitboard::Board::{Board, Bitboard, ByColor, ByRole, Color, Piece, Role, Square};
+use chess::bitboard::board::{Board, Bitboard, ByColor, ByRole, Color, Piece, Role, Square};
 
 #[cfg(test)]
 mod tests {

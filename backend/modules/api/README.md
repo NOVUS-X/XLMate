@@ -1,8 +1,8 @@
-# StarkMate API Documentation
+# XLMate API Documentation
 
 ## Overview
 
-This is the OpenAPI/Swagger documentation for the StarkMate chess platform backend services, providing a comprehensive reference for developers. The documentation covers all API endpoints, WebSocket communication protocols, authentication flows, and includes automatic client SDK generation.
+This is the OpenAPI/Swagger documentation for the XLMate chess platform backend services, providing a comprehensive reference for developers. The documentation covers all API endpoints, WebSocket communication protocols, authentication flows, and includes automatic client SDK generation.
 
 ## Features
 

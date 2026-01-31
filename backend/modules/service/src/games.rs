@@ -190,6 +190,8 @@ mod tests {
                     duration_sec: 600,
                     created_at: Utc::now().with_timezone(&FixedOffset::east_opt(0).unwrap()),
                     updated_at: Utc::now().with_timezone(&FixedOffset::east_opt(0).unwrap()),
+                    is_imported: false,
+                    original_pgn: None,
                 }],
             ])
             .into_connection();
@@ -243,6 +245,8 @@ mod tests {
                     duration_sec: 600,
                     created_at: Utc::now().with_timezone(&FixedOffset::east_opt(0).unwrap()),
                     updated_at: Utc::now().with_timezone(&FixedOffset::east_opt(0).unwrap()),
+                    is_imported: false,
+                    original_pgn: None,
             }]])
             .into_connection();
             

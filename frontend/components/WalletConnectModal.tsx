@@ -44,7 +44,7 @@
 //           <div className="text-center">
 //             <h2 className="text-xl font-bold text-white">Connect Wallet</h2>
 //             <p className="text-gray-400 mt-2">
-//               Choose your preferred wallet to connect to StarkMate
+//               Choose your preferred wallet to connect to XLMate
 //             </p>
 //           </div>
 //           <div className="space-y-3">

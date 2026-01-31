@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Client SDK Generation Script for StarkMate API
+# Client SDK Generation Script for XLMate API
 # This script generates client SDKs for TypeScript, Python, and Rust
 
 # Set variables
@@ -21,7 +21,7 @@ curl -s $API_ENDPOINT -o $OPENAPI_JSON
 # Check if OpenAPI spec was downloaded successfully
 if [ ! -f $OPENAPI_JSON ]; then
     echo "Error: Could not download OpenAPI specification."
-    echo "Make sure the StarkMate API server is running at localhost:8080"
+    echo "Make sure the XLMate API server is running at localhost:8080"
     exit 1
 fi
 

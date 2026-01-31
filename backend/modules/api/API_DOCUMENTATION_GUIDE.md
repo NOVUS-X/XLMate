@@ -1,6 +1,6 @@
-# StarkMate API Documentation Guide
+# XLMate API Documentation Guide
 
-This guide explains how to maintain and update the OpenAPI/Swagger documentation for the StarkMate chess platform.
+This guide explains how to maintain and update the OpenAPI/Swagger documentation for the XLMate chess platform.
 
 ## Overview
 
