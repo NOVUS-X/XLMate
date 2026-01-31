@@ -1,7 +1,9 @@
+use chess::{TimeControl, PlayerClock};
+use std::time::Duration;
+
 #[cfg(test)]
 mod tests {
-    use chess::{TimeControl, PlayerClock};
-    use std::time::Duration;
+    use super::*;
 
     #[test]
     fn test_time_control() {

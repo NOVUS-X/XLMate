@@ -76,7 +76,7 @@ async fn join_queue(
             log::error!("Failed to join queue: {}", e);
             HttpResponse::ServiceUnavailable().json(ErrorResponse {
                 status: "error".to_string(),
-                error: "Service temporarily unavailable".to_string(),
+                error: "internal_error".to_string(),
             })
         }
     }
@@ -101,7 +101,7 @@ async fn get_status(
             log::error!("Failed to get queue status: {}", e);
             HttpResponse::ServiceUnavailable().json(ErrorResponse {
                 status: "error".to_string(),
-                error: "Service temporarily unavailable".to_string(),
+                error: "internal_error".to_string(),
             })
         }
     }
@@ -122,7 +122,7 @@ async fn cancel_request(
             log::error!("Failed to cancel request: {}", e);
             HttpResponse::ServiceUnavailable().json(ErrorResponse {
                 status: "error".to_string(),
-                error: "Service temporarily unavailable".to_string(),
+                error: "internal_error".to_string(),
             })
         }
     }
@@ -147,7 +147,7 @@ async fn accept_invite(
             log::error!("Failed to accept invite: {}", e);
             HttpResponse::ServiceUnavailable().json(ErrorResponse {
                 status: "error".to_string(),
-                error: "Service temporarily unavailable".to_string(),
+                error: "internal_error".to_string(),
             })
         }
     }
