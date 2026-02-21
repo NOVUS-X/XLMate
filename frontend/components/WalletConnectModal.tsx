@@ -100,8 +100,53 @@
 // }
 
 // Placeholder export while WalletConnectModal is being implemented
+import React, { useState } from "react";
+import { useAppContext } from "@/context/walletContext";
+
 export function WalletConnectModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+  const { connectWallet, disconnectWallet, address, sendXLM, invokeSorobanContract, status } = useAppContext();
+  const [isProcessing, setIsProcessing] = useState(false);
   if (!isOpen) return null;
+
+  const handleConnect = async () => {
+    setIsProcessing(true);
+    try {
+      await connectWallet();
+      onClose();
+    } catch (e) {
+      // errors are surfaced via console and may be shown by a toast elsewhere
+      console.error(e);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleSendTest = async () => {
+    if (!address) return;
+    setIsProcessing(true);
+    try {
+      // send a small test payment to self (no-op) — replace destination as needed
+      await sendXLM(address, "0.0001");
+      onClose();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleInvoke = async () => {
+    setIsProcessing(true);
+    try {
+      // Placeholder: requires contract ABI/params — will throw until implemented
+      await invokeSorobanContract("<contract-id>", "<function>");
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="relative bg-gray-900 rounded-lg border border-gray-800 p-6 w-full max-w-md mx-4">
@@ -113,7 +158,40 @@ export function WalletConnectModal({ isOpen, onClose }: { isOpen: boolean; onClo
           ✕
         </button>
         <h2 className="text-xl font-semibold text-white mb-4">Connect Wallet</h2>
-        <p className="text-gray-400 mb-6">Wallet connection coming soon</p>
+        <p className="text-gray-400 mb-6">Connect via Freighter to use XLMate on Stellar/Soroban</p>
+
+        <div className="space-y-3">
+          {address ? (
+            <div className="text-sm text-gray-200">
+              <div>Connected: {address}</div>
+              <div className="flex gap-2 mt-3">
+                <button onClick={handleSendTest} disabled={isProcessing} className="btn">
+                  Send Test XLM
+                </button>
+                <button onClick={handleInvoke} disabled={isProcessing} className="btn">
+                  Invoke Contract
+                </button>
+                <button
+                  onClick={async () => {
+                    await disconnectWallet();
+                    onClose();
+                  }}
+                  className="btn-ghost"
+                >
+                  Disconnect
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              <button onClick={handleConnect} disabled={isProcessing} className="w-full bg-gradient-to-r from-teal-500 to-blue-700 hover:from-teal-600 hover:to-blue-800 text-white py-2 rounded">
+                {isProcessing ? "Connecting..." : "Connect Freighter"}
+              </button>
+              <div className="text-xs text-gray-400">Freighter must be installed and unlocked in your browser.</div>
+            </div>
+          )}
+          <div className="text-xs text-gray-500 mt-4">Status: {status}</div>
+        </div>
       </div>
     </div>
   );
