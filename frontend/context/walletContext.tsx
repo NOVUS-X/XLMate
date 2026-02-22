@@ -120,7 +120,7 @@
 "use client";
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { Server, TransactionBuilder, Networks, Operation, Asset } from "stellar-sdk";
-import type { Transaction } from "stellar-sdk";
+import { Transaction } from "stellar-sdk";
 
 const HORIZON_URL = process.env.NEXT_PUBLIC_HORIZON_URL || "https://horizon-testnet.stellar.org";
 const SOROBAN_RPC = process.env.NEXT_PUBLIC_SOROBAN_RPC || "https://soroban-testnet.stellar.org:443";
@@ -230,11 +230,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     // submit signed XDR
     try {
-      const res = await server.submitTransaction(signedEnvelopeXDR);
+      const txObj = TransactionBuilder.fromXDR(signedEnvelopeXDR, NETWORK_PASSPHRASE);
+      const res = await server.submitTransaction(txObj);
       return res;
     } catch (err) {
       // some horizon clients expect a TransactionEnvelope object; try submitting as-is
       try {
+        // fallback: try submitting as-is (deprecated)
         const res = await server.submitTransaction(signedEnvelopeXDR as unknown as Transaction);
         return res;
       } catch (e) {
@@ -252,10 +254,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       // dynamic import to avoid build-time hard dependency when not used
       const sc = await import("soroban-client");
-      const { makeSorobanRpc, fromXDR } = sc; // placeholder usage
-      // NOTE: Building Soroban-hosted transactions is involved; for many use-cases using
-      // the Soroban SDK on the backend is easier. Here we prepare a simple template:
-      const serverUrl = SOROBAN_RPC;
+      const SorobanClient = sc.default;
+      // Modern Soroban SDK usage
+      const rpc = new SorobanClient(SOROBAN_RPC);
+      // TODO: Implement full hostfunction builder for specific contract/ABI
+      // Example: await rpc.getContractData(contractId);
       // TODO: Implement full hostfunction builder for specific contract/ABI
       throw new Error("invokeSorobanContract: implement contract-specific invocation (ABI required)");
     } catch (err) {
