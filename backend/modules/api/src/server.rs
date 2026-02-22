@@ -6,6 +6,7 @@ use dotenv::dotenv;
 use sea_orm::{Database, DatabaseConnection};
 use std::env;
 use security::JwtService;
+use security::JwtAuthMiddleware;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 use utoipa_redoc::{Redoc, Servable};
