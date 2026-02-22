@@ -1,5 +1,5 @@
 use actix_web::{
-    HttpResponse, HttpRequest, delete, get, post, put,
+    HttpResponse, HttpRequest, HttpMessage, delete, get, post, put,
     web::{self, Json, Path, Query},
 };
 use dto::{
@@ -98,11 +98,11 @@ pub async fn get_game(
     let game_id = id.into_inner();
 
     match GameService::get_game(db.get_ref(), game_id).await {
-        Ok(Some(game_dto)) => HttpResponse::Ok().json(json!({
+        Ok(game_dto) => HttpResponse::Ok().json(json!({
             "message": "Game found",
             "data": { "game": game_dto }
         })),
-        Ok(None) => HttpResponse::NotFound().json(json!({
+        Err(ApiError::NotFound(_)) => HttpResponse::NotFound().json(json!({
             "message": "Game not found"
         })),
         Err(e) => {
@@ -221,9 +221,9 @@ pub async fn list_games(
                 .into_iter()
                 .map(|g| {
                     let status = match &g.result {
-                        Some(_)                      => "completed",
-                        None if g.started_at.is_some() => "in_progress",
-                        None                         => "waiting",
+                        Some(db_entity::game::ResultSide::Ongoing) => "in_progress",
+                        Some(_) => "completed",
+                        None => "waiting",
                     };
                     json!({
                         "id":              g.id,

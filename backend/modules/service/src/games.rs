@@ -7,11 +7,61 @@ use sea_orm::{Condition, DatabaseConnection};
 use uuid::Uuid;
 use chrono::{DateTime, Utc, TimeZone};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use dto::games::GameStatus;
+use dto::games::{GameStatus, CreateGameRequest, MakeMoveRequest, GameDisplayDTO};
+use error::error::ApiError;
+use chess::pgn::ValidatedGame;
 
 pub struct GameService;
 
 impl GameService {
+    pub async fn create_game(
+        _db: &DatabaseConnection,
+        _creator_id: Uuid,
+        _request: CreateGameRequest,
+    ) -> Result<GameDisplayDTO, ApiError> {
+        Err(ApiError::NotImplemented("create_game not yet implemented".to_string()))
+    }
+
+    pub async fn get_game(
+        _db: &DatabaseConnection,
+        _game_id: Uuid,
+    ) -> Result<GameDisplayDTO, ApiError> {
+        Err(ApiError::NotFound("Game not found".to_string()))
+    }
+
+    pub async fn make_move(
+        _db: &DatabaseConnection,
+        _game_id: Uuid,
+        _player_id: Uuid,
+        _move_request: MakeMoveRequest,
+    ) -> Result<GameDisplayDTO, ApiError> {
+        Err(ApiError::NotImplemented("make_move not yet implemented".to_string()))
+    }
+
+    pub async fn join_game(
+        _db: &DatabaseConnection,
+        _game_id: Uuid,
+        _player_id: Uuid,
+    ) -> Result<GameDisplayDTO, ApiError> {
+        Err(ApiError::NotImplemented("join_game not yet implemented".to_string()))
+    }
+
+    pub async fn abandon_game(
+        _db: &DatabaseConnection,
+        _game_id: Uuid,
+        _player_id: Uuid,
+    ) -> Result<GameDisplayDTO, ApiError> {
+        Err(ApiError::NotImplemented("abandon_game not yet implemented".to_string()))
+    }
+
+    pub async fn import_game(
+        _db: &DatabaseConnection,
+        _importer_id: Uuid,
+        _request: &ValidatedGame,
+    ) -> Result<Uuid, ApiError> {
+        Err(ApiError::NotImplemented("import_game not yet implemented".to_string()))
+    }
+
     /// List games with keyset pagination.
     /// 
     /// # Arguments

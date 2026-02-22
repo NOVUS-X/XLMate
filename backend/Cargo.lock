@@ -3217,6 +3217,7 @@ dependencies = [
  "argon2",
  "base64 0.22.1",
  "bcrypt",
+ "chess",
  "chrono",
  "db",
  "db_entity",
