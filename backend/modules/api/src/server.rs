@@ -140,6 +140,7 @@ pub async fn main() -> std::io::Result<()> {
             // Player routes
             .service(
                 web::scope("/v1/players")
+                    .wrap(JwtAuthMiddleware::new(jwt_secret.clone(), jwt_expiration))
                     .service(add_player)
                     .service(find_player_by_id)
                     .service(update_player)
@@ -148,6 +149,7 @@ pub async fn main() -> std::io::Result<()> {
             // Game routes
             .service(
                 web::scope("/v1/games")
+                    .wrap(JwtAuthMiddleware::new(jwt_secret.clone(), jwt_expiration))
                     .wrap(Governor::new(&game_governor_conf))
                     .service(create_game)
                     .service(get_game)
@@ -169,6 +171,7 @@ pub async fn main() -> std::io::Result<()> {
             // AI routes
             .service(
                 web::scope("/v1/ai")
+                    .wrap(JwtAuthMiddleware::new(jwt_secret.clone(), jwt_expiration))
                     .service(get_ai_suggestion)
                     .service(analyze_position),
             )
