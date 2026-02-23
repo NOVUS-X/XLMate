@@ -133,8 +133,6 @@ pub async fn main() -> std::io::Result<()> {
             .app_data(web::Data::from(db.clone()))
             .app_data(web::Data::new(jwt_service.clone()))
             .app_data(web::Data::new(lobby.clone()))
-            // WebSocket route mounting
-            .route("/ws/{game_id}", web::get().to(ws_route))
             // Register your routes
             .route("/health", web::get().to(health))
             .route("/", web::get().to(greet))
@@ -150,8 +148,8 @@ pub async fn main() -> std::io::Result<()> {
             // Game routes
             .service(
                 web::scope("/v1/games")
-                    .wrap(JwtAuthMiddleware::new(jwt_secret.clone(), jwt_expiration))
                     .wrap(Governor::new(&game_governor_conf))
+                    .wrap(JwtAuthMiddleware::new(jwt_secret.clone(), jwt_expiration))
                     .service(create_game)
                     .service(get_game)
                     .service(list_games)
@@ -168,6 +166,11 @@ pub async fn main() -> std::io::Result<()> {
                     .service(register)
                     .service(refresh)
                     .service(logout)
+            )
+            // WebSocket routes
+            .service(
+                web::scope("/v1/ws")
+                    .route("/game/{game_id}", web::get().to(ws_route))
             )
             // AI routes
             .service(

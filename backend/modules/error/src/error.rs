@@ -20,6 +20,9 @@ pub enum ApiError {
         move_text: String,
         reason: String,
     },
+    BadRequest(String),
+    Forbidden(String),
+    NotImplemented(String),
 }
 
 impl From<DbErr> for ApiError {
@@ -89,6 +92,9 @@ impl fmt::Display for ApiError {
             ApiError::IllegalMoveError { move_number, move_text, reason } => {
                 write!(f, "Illegal move at move {}: '{}' - {}", move_number, move_text, reason)
             }
+            ApiError::BadRequest(msg) => write!(f, "{}", msg),
+            ApiError::Forbidden(msg) => write!(f, "{}", msg),
+            ApiError::NotImplemented(msg) => write!(f, "{}", msg),
         }
     }
 }
@@ -123,6 +129,18 @@ impl ApiError {
             ApiError::IllegalMoveError { .. } => HttpResponse::UnprocessableEntity().json(json!({
                 "error": self.to_string(),
                 "code": 422
+            })),
+            ApiError::BadRequest(_) => HttpResponse::BadRequest().json(json!({
+                "error": self.to_string(),
+                "code": 400
+            })),
+            ApiError::Forbidden(_) => HttpResponse::Forbidden().json(json!({
+                "error": self.to_string(),
+                "code": 403
+            })),
+            ApiError::NotImplemented(_) => HttpResponse::NotImplemented().json(json!({
+                "error": self.to_string(),
+                "code": 501
             })),
         }
     }
