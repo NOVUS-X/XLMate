@@ -37,6 +37,7 @@ const ChessboardComponent: React.FC<ChessboardComponentProps> = ({
 
   useEffect(() => {
     const updateBoardSize = () => {
+      if (typeof document === "undefined") return;
       const container = document.querySelector(
         ".chessboard-container"
       )?.parentElement;

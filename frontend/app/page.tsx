@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import ChessboardComponent from "@/components/chess/ChessboardComponent";
+import React, { useState } from "react";
+import dynamic from "next/dynamic";
+const ChessboardComponent = dynamic(() => import("@/components/chess/ChessboardComponent"), { ssr: false });
 import { Chess } from "chess.js";
-import GameModeButtons from "@/components/GameModeButtons";
-import { useMatchmaking } from "@/hook/useMatchmaking";
+const GameModeButtons = dynamic(() => import("@/components/GameModeButtons"), { ssr: false });
 import { FaUser } from "react-icons/fa";
 import { RiAliensFill } from "react-icons/ri";
 
