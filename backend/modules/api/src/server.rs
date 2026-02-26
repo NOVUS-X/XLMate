@@ -18,6 +18,8 @@ use crate::ai::{get_ai_suggestion, analyze_position};
 use crate::ws::{LobbyState, ws_route};
 use crate::config::AppConfig;
 use actix_governor::{Governor, GovernorConfigBuilder};
+use matchmaking::service::MatchmakingService;
+use matchmaking::redis::{create_redis_pool, test_redis_connection};
 
 use crate::openapi::ApiDoc;
 
@@ -51,6 +53,8 @@ pub async fn main() -> std::io::Result<()> {
         .parse::<usize>()
         .unwrap_or(3600);
 
+    let redis_url = env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
+
     eprintln!("Initializing XLMate Backend Server");
     eprintln!("Server address: {}", server_addr);
 
@@ -79,6 +83,17 @@ pub async fn main() -> std::io::Result<()> {
     // Load AppConfig
     let config = AppConfig::from_env();
 
+    // Initialize Matchmaking
+    eprintln!("Connecting to Redis for matchmaking at {}", redis_url);
+    let redis_pool = create_redis_pool(&redis_url).expect("Failed to create Redis pool");
+    
+    // Optional: test connection
+    if let Err(e) = test_redis_connection(&redis_pool).await {
+        eprintln!("Warning: Redis connection test failed: {}", e);
+    }
+    
+    let matchmaking_service = MatchmakingService::new(redis_pool);
+
     eprintln!("Starting HTTP server on {}", server_addr);
 
     // Define the app factory closure
@@ -86,6 +101,7 @@ pub async fn main() -> std::io::Result<()> {
         let db = db.clone();
         let jwt_service = jwt_service.clone();
         let jwt_secret = jwt_secret.clone();
+        let matchmaking_service = matchmaking_service.clone();
         
         // Configure CORS middleware with environment variables for flexibility
         let cors = {
@@ -133,6 +149,7 @@ pub async fn main() -> std::io::Result<()> {
             .app_data(web::Data::from(db.clone()))
             .app_data(web::Data::new(jwt_service.clone()))
             .app_data(web::Data::new(lobby.clone()))
+            .app_data(web::Data::new(matchmaking_service.clone()))
             // Register your routes
             .route("/health", web::get().to(health))
             .route("/", web::get().to(greet))
@@ -171,6 +188,11 @@ pub async fn main() -> std::io::Result<()> {
             .service(
                 web::scope("/v1/ws")
                     .route("/game/{game_id}", web::get().to(ws_route))
+            )
+            // Matchmaking routes
+            .service(
+                web::scope("/v1")
+                    .configure(matchmaking::routes::config)
             )
             // AI routes
             .service(
