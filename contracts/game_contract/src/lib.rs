@@ -56,6 +56,8 @@ pub enum ContractError {
     GameAlreadyCompleted = 9,
     DrawNotAvailable = 10,
     ForfeitNotAllowed = 11,
+    InvalidPercentage = 12,
+    MismatchedLengths = 13,
 }
 
 #[contract]
@@ -282,6 +284,75 @@ impl GameContract {
         Ok(())
     }
 
+    // Payout tournament winnings to multiple winners
+    pub fn payout_tournament(env: Env, game_id: u64, winners: Vec<Address>, percentages: Vec<u32>) -> Result<(), ContractError> {
+        let mut games: Map<u64, Game> = env.storage().instance().get(&GAMES)
+            .ok_or(ContractError::GameNotFound)?;
+        
+        let game = games.get(game_id).ok_or(ContractError::GameNotFound)?;
+
+        // Validate game state
+        if game.state != GameState::Completed {
+            return Err(ContractError::GameNotInProgress);
+        }
+
+        // Validate arrays
+        if winners.len() != percentages.len() {
+            return Err(ContractError::MismatchedLengths);
+        }
+
+        // Validate percentages equal 100
+        let mut total_percentage: u32 = 0;
+        for i in 0..percentages.len() {
+            total_percentage += percentages.get(i).unwrap();
+        }
+
+        if total_percentage != 100 {
+            return Err(ContractError::InvalidPercentage);
+        }
+
+        let mut escrow: Map<Address, i128> = env.storage().instance().get(&ESCROW).unwrap_or(Map::new(&env));
+        let total_pool = game.wager_amount * 2;
+        let mut distributed: i128 = 0;
+
+        for i in 0..winners.len() {
+            let winner = winners.get(i).unwrap();
+            let percentage = percentages.get(i).unwrap();
+            
+            // Calculate payout based on percentage of total pool
+            let payout_amount = (total_pool * percentage as i128) / 100;
+            distributed += payout_amount;
+
+            let winner_escrow = escrow.get(winner.clone()).unwrap_or(0);
+            escrow.set(winner.clone(), winner_escrow + payout_amount);
+        }
+
+        // Verify precisely equals or distribute remainder to the first winner to avoid dust
+        let remainder = total_pool - distributed;
+        if remainder > 0 && winners.len() > 0 {
+            let first_winner = winners.get(0).unwrap();
+            let winner_escrow = escrow.get(first_winner.clone()).unwrap_or(0);
+            escrow.set(first_winner.clone(), winner_escrow + remainder);
+        }
+
+        // Subtract from losers (which are both players since total_pool uses both their wagers)
+        let player1_escrow = escrow.get(game.player1.clone()).unwrap_or(0);
+        escrow.set(game.player1.clone(), player1_escrow - game.wager_amount);
+
+        if let Some(ref player2) = game.player2 {
+            let player2_escrow = escrow.get(player2.clone()).unwrap_or(0);
+            escrow.set(player2.clone(), player2_escrow - game.wager_amount);
+        }
+
+        env.storage().instance().set(&ESCROW, &escrow);
+
+        // Store updated game
+        games.set(game_id, game);
+        env.storage().instance().set(&GAMES, &games);
+
+        Ok(())
+    }
+
     // Get game details
     pub fn get_game(env: Env, game_id: u64) -> Result<Game, ContractError> {
         let games: Map<u64, Game> = env.storage().instance().get(&GAMES)
@@ -356,4 +427,7 @@ impl GameContract {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod test;
 
