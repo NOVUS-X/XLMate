@@ -24,13 +24,26 @@ pub struct Claims {
     pub exp: usize,
     /// Issued at time (Unix timestamp)
     pub iat: usize,
+    /// JWT ID for reconnection tokens (optional)
+    pub jti: Option<String>,
+    /// Token type (access or reconnect)
+    pub token_type: TokenType,
+}
+
+/// Token type enumeration
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum TokenType {
+    Access,
+    Reconnect,
 }
 
 /// JWT Service for token generation and validation
 #[derive(Clone, Debug)]
 pub struct JwtService {
-    secret_key: String,
+    pub secret_key: String,
     expiration_time: usize, // in seconds
+    reconnect_expiration_time: usize, // in seconds (shorter for reconnect tokens)
 }
 
 impl JwtService {
@@ -39,10 +52,11 @@ impl JwtService {
         JwtService {
             secret_key,
             expiration_time,
+            reconnect_expiration_time: 30, // 30 seconds for reconnect tokens
         }
     }
 
-    /// Generate a new JWT token for a user
+    /// Generate a new JWT access token for a user
     pub fn generate_token(&self, user_id: i32, username: &str) -> Result<String, jsonwebtoken::errors::Error> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -55,6 +69,34 @@ impl JwtService {
             username: username.to_string(),
             exp: now + self.expiration_time,
             iat: now,
+            jti: None,
+            token_type: TokenType::Access,
+        };
+
+        let token = encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(self.secret_key.as_ref()),
+        )?;
+
+        Ok(token)
+    }
+
+    /// Generate a reconnection token for seamless WebSocket reconnection
+    pub fn generate_reconnect_token(&self, user_id: i32, username: &str, session_id: &str) -> Result<String, jsonwebtoken::errors::Error> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as usize;
+
+        let claims = Claims {
+            sub: user_id.to_string(),
+            user_id,
+            username: username.to_string(),
+            exp: now + self.reconnect_expiration_time,
+            iat: now,
+            jti: Some(session_id.to_string()),
+            token_type: TokenType::Reconnect,
         };
 
         let token = encode(

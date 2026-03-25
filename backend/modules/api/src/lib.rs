@@ -8,6 +8,9 @@ pub mod server;
 pub mod players;
 pub mod games;
 
+// External modules
+extern crate challenge;
+
 // Re-export server module for external use
 pub use server::main;
 pub use auth::{login, register, refresh, logout};
