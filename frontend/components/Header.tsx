@@ -8,6 +8,7 @@ import { useTheme } from 'next-themes'
 import { Sheet, SheetContent, SheetTrigger } from './ui/sheet'
 import { GameSidebar } from './GameSidebar'
 import { MoonIcon, SunIcon } from 'lucide-react'
+import { ConnectWalletButton } from './ConnectWalletButton'
 
 export function Header() {
     const { theme, setTheme } = useTheme()
@@ -43,7 +44,9 @@ export function Header() {
                     </Link>
                 </div>
 
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-4">
+                    <ConnectWalletButton />
+                    
                     <Button variant="ghost" size="icon" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
                         {theme === 'dark' ? <SunIcon className="h-5 w-5" /> : <MoonIcon className="h-5 w-5" />}
                     </Button>

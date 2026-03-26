@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { GameSidebar } from "@/components/GameSidebar";
+import { Header } from "@/components/Header";
 import Image from "next/image";
 import clsx from "clsx";
 
@@ -23,6 +24,7 @@ export default function ClientRoot({
           isSidebarCollapsed ? "md:ml-16" : "md:ml-64"
         )}
       >
+        <Header />
         <div className="md:hidden flex items-center p-4 border-b border-gray-800">
           <GameSidebar
             isMobileView={true}

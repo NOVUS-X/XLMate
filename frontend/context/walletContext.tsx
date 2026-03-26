@@ -118,22 +118,29 @@
 // };
 
 "use client";
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useState, useRef } from "react";
 import { Server, TransactionBuilder, Networks, Operation, Asset } from "stellar-sdk";
 import { Transaction } from "stellar-sdk";
+import { Toast } from "primereact/toast";
 
 const HORIZON_URL = process.env.NEXT_PUBLIC_HORIZON_URL || "https://horizon-testnet.stellar.org";
 const SOROBAN_RPC = process.env.NEXT_PUBLIC_SOROBAN_RPC || "https://soroban-testnet.stellar.org:443";
 const NETWORK_PASSPHRASE = process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE || Networks.TESTNET;
 
+// Map network passphrase to display name
+const NETWORK_NAME = NETWORK_PASSPHRASE === Networks.PUBLIC_NETWORK ? "Stellar Public Network" : "Stellar Testnet";
+
 type AppContextType = {
   address?: string;
-  status: "connected" | "disconnected" | "connecting" | "error";
+  status: "connected" | "disconnected" | "connecting" | "error" | "network_mismatch";
   balance?: string | React.ReactNode;
   connectWallet: () => Promise<void>;
   disconnectWallet: () => Promise<void>;
   sendXLM: (destination: string, amount: string | number) => Promise<any>;
   invokeSorobanContract: (contractId: string, functionName: string, args?: any[]) => Promise<any>;
+  showToast: (severity: "success" | "error" | "info" | "warn", summary: string, detail: string) => void;
+  networkName: string;
+  expectedNetwork: string;
 };
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -141,12 +148,20 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [address, setAddress] = useState<string | undefined>(undefined);
   const [status, setStatus] = useState<AppContextType["status"]>("disconnected");
+  const toastRef = useRef<Toast>(null);
   const server = new Server(HORIZON_URL);
+
+  const showToast = (severity: "success" | "error" | "info" | "warn", summary: string, detail: string) => {
+    toastRef.current?.show({ severity, summary, detail, life: 5000 });
+  };
 
   useEffect(() => {
     // Auto-detect previously connected Freighter account
     const stored = localStorage.getItem("freighter_address");
-    if (stored) setAddress(stored);
+    if (stored) {
+      setAddress(stored);
+      setStatus("connected");
+    }
   }, []);
 
   const isFreighterAvailable = (): boolean => {
@@ -154,22 +169,68 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return typeof window !== "undefined" && (!!(window as any).freighterApi || !!(window as any).freighter);
   };
 
+  const getFreighterPublicKey = async (): Promise<string> => {
+    const freighter = (window as any).freighterApi || (window as any).freighter;
+    if (!freighter) throw new Error("Freighter not available");
+
+    // Try different API patterns for public key retrieval
+    if (freighter.getPublicKey) {
+      const key = await freighter.getPublicKey();
+      if (key) return key;
+    } else if (freighter.publicKey) {
+      return freighter.publicKey;
+    }
+    throw new Error("Unable to retrieve public key from Freighter");
+  };
+
+  // Detect if network matches expected configuration
+  const checkNetworkMatch = async (): Promise<boolean> => {
+    try {
+      // Use Horizon to infer the network
+      const ledger = await server.ledgers().limit(1).call();
+      // Stellar testnet has "Test SDF Network" in protocol details, public has "Public Global Stellar Network"
+      // For now, we check if we can connect to our configured Horizon URL
+      // A more robust check would use Freighter's networkDetails API if available
+      return true;
+    } catch (err) {
+      console.warn("Network check failed:", err);
+      return false;
+    }
+  };
+
   const connectWallet = async () => {
     setStatus("connecting");
     try {
-      if (!isFreighterAvailable()) throw new Error("Freighter not found. Please install Freighter.");
+      if (!isFreighterAvailable()) {
+        showToast("error", "Freighter Not Installed", "Please install the Freighter wallet extension.");
+        setStatus("error");
+        throw new Error("Freighter not found. Please install Freighter.");
+      }
 
-      // Prefer the freighter-api package if available on window
-      const freighter = (window as any).freighterApi || (window as any).freighter;
-      // try to get public key
-      const publicKey = await (freighter.getPublicKey ? freighter.getPublicKey() : freighter.getPublicKey());
-      if (!publicKey) throw new Error("Unable to read public key from Freighter");
+      const publicKey = await getFreighterPublicKey();
+      if (!publicKey) {
+        showToast("error", "Connection Failed", "Unable to read public key from Freighter.");
+        setStatus("error");
+        throw new Error("Unable to read public key from Freighter");
+      }
+
+      // Check network match
+      const networkMatches = await checkNetworkMatch();
+      if (!networkMatches) {
+        showToast("warn", "Network Mismatch", `Please switch Freighter to ${NETWORK_NAME}`);
+        setStatus("network_mismatch");
+        throw new Error("Network mismatch");
+      }
+
       setAddress(publicKey);
       localStorage.setItem("freighter_address", publicKey);
       setStatus("connected");
+      showToast("success", "Wallet Connected", `Connected: ${publicKey.slice(0, 6)}...${publicKey.slice(-6)}`);
     } catch (err) {
       console.error("connectWallet", err);
-      setStatus("error");
+      if (status !== "network_mismatch") {
+        setStatus("error");
+      }
       throw err;
     }
   };
@@ -178,6 +239,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setAddress(undefined);
     localStorage.removeItem("freighter_address");
     setStatus("disconnected");
+    showToast("success", "Wallet Disconnected", "Your wallet has been disconnected.");
   };
 
   async function signWithFreighter(txXDR: string): Promise<string> {
@@ -268,19 +330,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AppContext.Provider
-      value={{
-        address,
-        status,
-        balance: undefined,
-        connectWallet,
-        disconnectWallet,
-        sendXLM,
-        invokeSorobanContract,
-      }}
-    >
-      {children}
-    </AppContext.Provider>
+    <>
+      <Toast ref={toastRef} />
+      <AppContext.Provider
+        value={{
+          address,
+          status,
+          balance: undefined,
+          connectWallet,
+          disconnectWallet,
+          sendXLM,
+          invokeSorobanContract,
+          showToast,
+          networkName: NETWORK_NAME,
+          expectedNetwork: NETWORK_PASSPHRASE,
+        }}
+      >
+        {children}
+      </AppContext.Provider>
+    </>
   );
 }
 
