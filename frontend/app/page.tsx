@@ -10,6 +10,13 @@ import { Chess } from "chess.js";
 const GameModeButtons = dynamic(() => import("@/components/GameModeButtons"), {
   ssr: false,
 });
+const AiPersonalityModal = dynamic(
+  () =>
+    import("@/app/components/matchmaking/AiPersonalityModal").then((m) => ({
+      default: m.AiPersonalityModal,
+    })),
+  { ssr: false },
+);
 import { FaUser } from "react-icons/fa";
 import { RiAliensFill } from "react-icons/ri";
 import { useChessSocket } from "@/hook/useChessSocket";
@@ -21,7 +28,14 @@ export default function Home() {
   const [position, setPosition] = useState("start");
   const [gameMode, setGameMode] = useState<"online" | "bot" | null>(null);
   const router = useRouter();
-  const MOCK_PLAYER_COUNT = 847; // replace with real web socket player count
+  const [onlinePlayerCount, setOnlinePlayerCount] = useState<number | null>(
+    null,
+  );
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+  const PLAYER_COUNT_ENDPOINT = `${API_BASE}/v1/players/online`;
+  const [isPersonalityModalOpen, setIsPersonalityModalOpen] = useState(false);
+
+  const { aiPersonality } = useMatchmakingContext();
 
   const {
     status: matchmakingStatus,
@@ -225,7 +239,7 @@ export default function Home() {
                     </span>
 
                     <p className="text-gray-300 text-sm">
-                      {MOCK_PLAYER_COUNT} Players online
+                      {onlinePlayerCount} Players online
                     </p>
 
                     <button
