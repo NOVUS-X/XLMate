@@ -53,6 +53,7 @@ const USED_NONCE: Symbol = symbol_short!("NONCES"); // Map<u64, bool> replay pro
 // Fee storage keys
 const FEE_BIPS: Symbol = symbol_short!("FEE_BIPS");
 const TREASURY_ADDR: Symbol = symbol_short!("TR_ADDR");
+const CONTRACT_ADMIN: Symbol = symbol_short!("CT_ADMIN");
 
 // Contract errors
 #[contracterror]
@@ -491,15 +492,16 @@ impl GameContract {
             .unwrap_or(Map::new(env));
 
         let fee_bips: u32 = env.storage().instance().get(&FEE_BIPS).unwrap_or(0);
-        let treasury_addr: Address = env
-            .storage()
-            .instance()
-            .get(&TREASURY_ADDR)
-            .expect("Treasury address not set");
+        let treasury_addr_opt: Option<Address> = env.storage().instance().get(&TREASURY_ADDR);
 
         let total_pool = game.wager_amount * 2;
-        let fee = (total_pool * fee_bips as i128) / 1000;
-        let payout = total_pool - fee;
+
+        let (payout, fee) = if treasury_addr_opt.is_some() {
+            let fee = (total_pool * fee_bips as i128) / 1000;
+            (total_pool - fee, fee)
+        } else {
+            (total_pool, 0)
+        };
 
         // Subtract wagers from both players first (clean state)
         let player1_escrow = escrow.get(game.player1.clone()).unwrap_or(0);
@@ -513,9 +515,13 @@ impl GameContract {
         let winner_escrow = escrow.get(winner.clone()).unwrap_or(0);
         escrow.set(winner.clone(), winner_escrow + payout);
 
-        // Add fee to treasury
-        let treasury_escrow = escrow.get(treasury_addr.clone()).unwrap_or(0);
-        escrow.set(treasury_addr, treasury_escrow + fee);
+        // Add fee to treasury if it exists
+        if fee > 0 {
+            if let Some(treasury_addr) = treasury_addr_opt {
+                let treasury_escrow = escrow.get(treasury_addr.clone()).unwrap_or(0);
+                escrow.set(treasury_addr, treasury_escrow + fee);
+            }
+        }
 
         env.storage().instance().set(&ESCROW, &escrow);
         Ok(())
@@ -530,15 +536,16 @@ impl GameContract {
             .unwrap_or(Map::new(env));
 
         let fee_bips: u32 = env.storage().instance().get(&FEE_BIPS).unwrap_or(0);
-        let treasury_addr: Address = env
-            .storage()
-            .instance()
-            .get(&TREASURY_ADDR)
-            .expect("Treasury address not set");
+        let treasury_addr_opt: Option<Address> = env.storage().instance().get(&TREASURY_ADDR);
 
         let total_pool = game.wager_amount * 2;
-        let fee = (total_pool * fee_bips as i128) / 1000;
-        let payout = total_pool - fee;
+
+        let (payout, fee) = if treasury_addr_opt.is_some() {
+            let fee = (total_pool * fee_bips as i128) / 1000;
+            (total_pool - fee, fee)
+        } else {
+            (total_pool, 0)
+        };
 
         // Subtract wagers from both players first (clean state)
         let player1_escrow = escrow.get(game.player1.clone()).unwrap_or(0);
@@ -552,9 +559,13 @@ impl GameContract {
         let winner_escrow = escrow.get(winner.clone()).unwrap_or(0);
         escrow.set(winner.clone(), winner_escrow + payout);
 
-        // Add fee to treasury
-        let treasury_escrow = escrow.get(treasury_addr.clone()).unwrap_or(0);
-        escrow.set(treasury_addr, treasury_escrow + fee);
+        // Add fee to treasury if it exists
+        if fee > 0 {
+            if let Some(treasury_addr) = treasury_addr_opt {
+                let treasury_escrow = escrow.get(treasury_addr.clone()).unwrap_or(0);
+                escrow.set(treasury_addr, treasury_escrow + fee);
+            }
+        }
 
         env.storage().instance().set(&ESCROW, &escrow);
         Ok(())
@@ -572,15 +583,18 @@ impl GameContract {
     /// * `treasury_amount`  - Tokens pre-funded into the treasury for puzzle payouts
     pub fn initialize(
         env: Env,
+        admin: Address,
         admin_public_key: Bytes,
         treasury_amount: i128,
         fee_bips: u32,
         treasury_address: Address,
     ) {
         // Prevent re-initialization
-        if env.storage().instance().has(&ADMIN_KEY) {
+        if env.storage().instance().has(&CONTRACT_ADMIN) {
             panic!("Already initialized");
         }
+
+        admin.require_auth();
 
         if admin_public_key.len() != 32 {
             panic!("Admin public key must be 32 bytes");
@@ -594,10 +608,47 @@ impl GameContract {
             panic!("Fee bips must be between 0 and 1000");
         }
 
+        env.storage().instance().set(&CONTRACT_ADMIN, &admin);
         env.storage().instance().set(&ADMIN_KEY, &admin_public_key);
         env.storage().instance().set(&TREASURY, &treasury_amount);
         env.storage().instance().set(&FEE_BIPS, &fee_bips);
         env.storage().instance().set(&TREASURY_ADDR, &treasury_address);
+    }
+
+    /// Update fee configuration. Only callable by the contract admin.
+    pub fn configure_fees(env: Env, admin: Address, fee_bips: u32, treasury_address: Address) {
+        let current_admin: Address = env
+            .storage()
+            .instance()
+            .get(&CONTRACT_ADMIN)
+            .expect("Not initialized");
+        current_admin.require_auth();
+
+        if admin != current_admin {
+            panic!("Unauthorized admin address");
+        }
+
+        if fee_bips > 1000 {
+            panic!("Fee bips must be between 0 and 1000");
+        }
+
+        env.storage().instance().set(&FEE_BIPS, &fee_bips);
+        env.storage().instance().set(&TREASURY_ADDR, &treasury_address);
+    }
+
+    /// Support legacy deployments by allowing the first admin to be set if missing.
+    pub fn upgrade_admin(env: Env, admin: Address) {
+        if env.storage().instance().has(&CONTRACT_ADMIN) {
+            panic!("Admin already set");
+        }
+
+        // For upgrade safety, we can only do this if it was previously initialized but without an admin
+        if !env.storage().instance().has(&ADMIN_KEY) {
+            panic!("Contract must be initialized first");
+        }
+
+        admin.require_auth();
+        env.storage().instance().set(&CONTRACT_ADMIN, &admin);
     }
 
     /// Claim a puzzle reward by presenting a backend-signed proof of completion.
@@ -781,12 +832,19 @@ mod tests {
         let contract_id = env.register_contract(None, GameContract);
         let client = GameContractClient::new(env, &contract_id);
 
+        let admin = Address::generate(env);
         let signing_key = SigningKey::generate(&mut OsRng);
         let verifying_key_bytes: [u8; 32] = signing_key.verifying_key().to_bytes();
         let admin_key = Bytes::from_slice(env, &verifying_key_bytes);
         let treasury_addr = Address::generate(env);
 
-        client.initialize(&admin_key, &treasury_amount, &0u32, &treasury_addr);
+        client.initialize(
+            &admin,
+            &admin_key,
+            &treasury_amount,
+            &0u32,
+            &treasury_addr,
+        );
         (client, signing_key)
     }
 
