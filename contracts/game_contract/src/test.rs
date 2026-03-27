@@ -170,3 +170,96 @@ fn test_payout_tournament_invalid_percentage() {
     // In soroban tests, try_ functions return Result<Result<T, Result<E, Result<soroban_sdk::Error, ...>>>>
     // Instead of explicitly checking the error code, we can just ensure it is an error.
 }
+
+#[test]
+fn test_multisig_upgrade_success() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, GameContract);
+    let client = GameContractClient::new(&env, &contract_id);
+
+    let admin1 = Address::generate(&env);
+    let admin2 = Address::generate(&env);
+    let admin3 = Address::generate(&env);
+
+    client.init_upgrade_admins(&admin1, &admin2, &admin3);
+
+    // Provide a minimal valid or empty WASM to the deployer
+    let dummy_wasm = soroban_sdk::Bytes::from_slice(&env, &[0; 100]);
+    let new_wasm_hash = env.deployer().upload_contract_wasm(dummy_wasm);
+
+    let mut signers = Vec::new(&env);
+    signers.push_back(admin1.clone());
+    signers.push_back(admin3.clone());
+
+    // Should succeed because we have 2 distinct admins
+    client.mock_all_auths().upgrade(&new_wasm_hash, &signers);
+}
+
+#[test]
+fn test_multisig_upgrade_insufficient_signatures() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, GameContract);
+    let client = GameContractClient::new(&env, &contract_id);
+
+    let admin1 = Address::generate(&env);
+    let admin2 = Address::generate(&env);
+    let admin3 = Address::generate(&env);
+
+    client.init_upgrade_admins(&admin1, &admin2, &admin3);
+
+    let new_wasm_hash = soroban_sdk::BytesN::from_array(&env, &[1; 32]);
+
+    let mut signers = Vec::new(&env);
+    signers.push_back(admin1.clone());
+
+    // Should fail with InsufficientSignatures
+    let res = client.mock_all_auths().try_upgrade(&new_wasm_hash, &signers);
+    assert!(res.is_err());
+}
+
+#[test]
+fn test_multisig_upgrade_invalid_admin() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, GameContract);
+    let client = GameContractClient::new(&env, &contract_id);
+
+    let admin1 = Address::generate(&env);
+    let admin2 = Address::generate(&env);
+    let admin3 = Address::generate(&env);
+    let fake_admin = Address::generate(&env);
+
+    client.init_upgrade_admins(&admin1, &admin2, &admin3);
+
+    let new_wasm_hash = soroban_sdk::BytesN::from_array(&env, &[1; 32]);
+
+    let mut signers = Vec::new(&env);
+    signers.push_back(admin1.clone());
+    signers.push_back(fake_admin.clone());
+
+    // Should fail with InvalidAdmin
+    let res = client.mock_all_auths().try_upgrade(&new_wasm_hash, &signers);
+    assert!(res.is_err());
+}
+
+#[test]
+fn test_multisig_upgrade_duplicate_signatures() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, GameContract);
+    let client = GameContractClient::new(&env, &contract_id);
+
+    let admin1 = Address::generate(&env);
+    let admin2 = Address::generate(&env);
+    let admin3 = Address::generate(&env);
+
+    client.init_upgrade_admins(&admin1, &admin2, &admin3);
+
+    let new_wasm_hash = soroban_sdk::BytesN::from_array(&env, &[1; 32]);
+
+    let mut signers = Vec::new(&env);
+    signers.push_back(admin1.clone());
+    signers.push_back(admin1.clone());
+
+    // Should fail with InsufficientSignatures because duplicate is ignored
+    let res = client.mock_all_auths().try_upgrade(&new_wasm_hash, &signers);
+    assert!(res.is_err());
+}

@@ -50,6 +50,9 @@ const TREASURY: Symbol = symbol_short!("TREASURY"); // i128 treasury reserve
 const BALANCES: Symbol = symbol_short!("BALANCES"); // Map<Address, i128> user balances
 const USED_NONCE: Symbol = symbol_short!("NONCES"); // Map<u64, bool> replay protection
 
+// Multisig upgrade storage key
+const UPGRADE_ADMINS: Symbol = symbol_short!("UPG_ADMS");
+
 // Contract errors
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -69,6 +72,9 @@ pub enum ContractError {
     Unauthorized = 14,
     InvalidPercentage = 12,
     MismatchedLengths = 13,
+    InsufficientSignatures = 15,
+    InvalidAdmin = 16,
+    AdminsNotInitialized = 17,
 }
 
 #[contract]
@@ -556,6 +562,80 @@ impl GameContract {
 
         env.storage().instance().set(&ADMIN_KEY, &admin_public_key);
         env.storage().instance().set(&TREASURY, &treasury_amount);
+    }
+
+    // ============================================================
+    // MULTISIG UPGRADE FUNCTIONS
+    // ============================================================
+
+    /// Initialize the 3 administrator addresses for contract upgrades.
+    /// Can only be called once.
+    pub fn init_upgrade_admins(env: Env, admin1: Address, admin2: Address, admin3: Address) {
+        if env.storage().instance().has(&UPGRADE_ADMINS) {
+            panic!("Upgrade admins already initialized");
+        }
+        let mut admins = Vec::new(&env);
+        admins.push_back(admin1);
+        admins.push_back(admin2);
+        admins.push_back(admin3);
+        env.storage().instance().set(&UPGRADE_ADMINS, &admins);
+    }
+
+    /// Upgrade the contract WASM.
+    /// Requires authorization from at least 2 of the 3 configured admins.
+    pub fn upgrade(
+        env: Env,
+        new_wasm_hash: BytesN<32>,
+        signers: Vec<Address>,
+    ) -> Result<(), ContractError> {
+        let admins: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&UPGRADE_ADMINS)
+            .ok_or(ContractError::AdminsNotInitialized)?;
+
+        // Ensure we have at least 2 signers
+        if signers.len() < 2 {
+            return Err(ContractError::InsufficientSignatures);
+        }
+
+        let admin1 = admins.get(0).unwrap();
+        let admin2 = admins.get(1).unwrap();
+        let admin3 = admins.get(2).unwrap();
+
+        let mut valid_signatures = 0;
+        let mut seen_admin1 = false;
+        let mut seen_admin2 = false;
+        let mut seen_admin3 = false;
+
+        for i in 0..signers.len() {
+            let signer = signers.get(i).unwrap();
+            
+            if signer == admin1 {
+                if seen_admin1 { continue; }
+                seen_admin1 = true;
+            } else if signer == admin2 {
+                if seen_admin2 { continue; }
+                seen_admin2 = true;
+            } else if signer == admin3 {
+                if seen_admin3 { continue; }
+                seen_admin3 = true;
+            } else {
+                return Err(ContractError::InvalidAdmin);
+            }
+
+            // Ensure the signer has authorized this call
+            signer.require_auth();
+            valid_signatures += 1;
+        }
+
+        if valid_signatures < 2 {
+            return Err(ContractError::InsufficientSignatures);
+        }
+
+        // Perform the upgrade
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
+        Ok(())
     }
 
     /// Claim a puzzle reward by presenting a backend-signed proof of completion.
