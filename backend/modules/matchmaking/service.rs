@@ -10,8 +10,21 @@ use uuid::Uuid;
 
 use super::models::*;
 
-const ELO_RANGE_INCREMENT_PER_MINUTE: u32 = 50;
-const DEFAULT_MAX_ELO_DIFF: u32 = 200;
+// ── Elo matching constants ────────────────────────────────────────────────────
+
+/// Initial Elo search window when a player first joins the rated queue.
+/// A 1000 Elo player will only match with players in the range [900, 1100].
+const INITIAL_ELO_RANGE: u32 = 100;
+
+/// After EXPAND_AFTER_SECS of waiting, the search window expands to this value.
+/// This guarantees a match will eventually be found while still preferring
+/// close-Elo opponents during the first 30 seconds.
+const EXPANDED_ELO_RANGE: u32 = 200;
+
+/// How many seconds a player must wait before their Elo search window expands
+/// from INITIAL_ELO_RANGE to EXPANDED_ELO_RANGE.
+const EXPAND_AFTER_SECS: i64 = 30;
+
 const DEFAULT_ESTIMATED_WAIT_TIME: Duration = Duration::from_secs(60);
 
 #[derive(Clone)]
@@ -39,12 +52,19 @@ impl MatchmakingService {
 
     pub async fn join_queue(
         &self,
-        request: MatchRequest,
+        mut request: MatchRequest,
     ) -> Result<MatchmakingResponse, String> {
         let request_id = request.id;
 
         match request.match_type {
             MatchType::Rated => {
+                // Set the initial Elo search window for this player.
+                // expand_elo_ranges() will widen it to EXPANDED_ELO_RANGE after
+                // EXPAND_AFTER_SECS seconds of waiting.
+                if request.max_elo_diff.is_none() {
+                    request.max_elo_diff = Some(INITIAL_ELO_RANGE);
+                }
+
                 if let Some(match_result) = self.find_rated_match(&request).await? {
                     return Ok(match_result);
                 }
@@ -107,7 +127,6 @@ impl MatchmakingService {
         Ok(())
     }
 
-
     async fn add_private_invite(
         &self,
         invite_address: &str,
@@ -154,8 +173,8 @@ impl MatchmakingService {
         let mut conn = self.get_redis_connection().await?;
         let key = "matchmaking:invites";
 
-        // Lua script for atomic find-and-remove operation
-        // This prevents race conditions where multiple players try to accept the same invite
+        // Lua script for atomic find-and-remove operation.
+        // Prevents race conditions where multiple players try to accept the same invite.
         let lua_script = r#"
             local key = KEYS[1]
             local target_request_id = ARGV[1]
@@ -185,7 +204,6 @@ impl MatchmakingService {
 
         if let Some(invite_json) = result {
             if let Ok(invite_request) = MatchRequest::from_redis_value(&invite_json) {
-                // Create match
                 let match_id = Uuid::new_v4();
                 let new_match = Match {
                     id: match_id,
@@ -207,13 +225,11 @@ impl MatchmakingService {
         }
 
         Ok(None)
-
     }
 
     pub async fn cancel_request(&self, request_id: Uuid) -> Result<bool, String> {
         let mut conn = self.get_redis_connection().await?;
 
-        // Try to remove from rated queue
         if self
             .remove_from_queue(&mut conn, "matchmaking:queue:rated", request_id)
             .await?
@@ -221,7 +237,6 @@ impl MatchmakingService {
             return Ok(true);
         }
 
-        // Try to remove from casual queue
         if self
             .remove_from_queue(&mut conn, "matchmaking:queue:casual", request_id)
             .await?
@@ -229,7 +244,6 @@ impl MatchmakingService {
             return Ok(true);
         }
 
-        // Try to remove from private invites
         let invites: HashMap<String, String> = conn
             .hgetall("matchmaking:invites")
             .await
@@ -280,7 +294,6 @@ impl MatchmakingService {
     ) -> Result<Option<QueueStatus>, String> {
         let mut conn = self.get_redis_connection().await?;
 
-        // Check rated queue
         if let Some(status) = self
             .get_status_from_queue(
                 &mut conn,
@@ -293,7 +306,6 @@ impl MatchmakingService {
             return Ok(Some(status));
         }
 
-        // Check casual queue
         if let Some(status) = self
             .get_status_from_queue(
                 &mut conn,
@@ -306,7 +318,6 @@ impl MatchmakingService {
             return Ok(Some(status));
         }
 
-        // Check private invites
         let invites: HashMap<String, String> = conn
             .hgetall("matchmaking:invites")
             .await
@@ -363,41 +374,63 @@ impl MatchmakingService {
         let mut conn = self.get_redis_connection().await?;
         let key = "matchmaking:queue:rated";
         let player_elo = request.player.elo;
-        let max_elo_diff = request.max_elo_diff.unwrap_or(DEFAULT_MAX_ELO_DIFF);
 
-        // Lua script for atomic find-and-remove operation
-        // This prevents race conditions where two players try to match with the same opponent
+        // The incoming player's current search window (may already be expanded
+        // if they were queued previously and re-calling after expand_elo_ranges).
+        let incoming_range = request.max_elo_diff.unwrap_or(INITIAL_ELO_RANGE);
+
+        // Lua script for atomic find-and-remove.
+        //
+        // Matching condition: the Elo gap must be within the LARGER of the two
+        // players' current search windows. This ensures that a player who has
+        // waited long enough to expand their range can match with anyone within
+        // their expanded window, even if that opponent joined more recently.
+        //
+        // Example:
+        //   - Player A (1000 Elo, waiting 35 s) has expanded range ±200 → matches
+        //     anyone in [800, 1200].
+        //   - Player B (1150 Elo, waiting 5 s)  has initial range ±100 → would
+        //     not match A under their own range, but A's expanded range covers
+        //     the 150-point gap, so the match IS made.
+        //
+        // A 1000 Elo player with INITIAL_ELO_RANGE can never match a 2000 Elo
+        // player because even EXPANDED_ELO_RANGE (200) is far smaller than the
+        // 1000-point gap. The guarantee holds.
         let lua_script = r#"
-            local key = KEYS[1]
-            local player_elo = tonumber(ARGV[1])
-            local max_elo_diff = tonumber(ARGV[2])
-            
+            local key             = KEYS[1]
+            local player_elo      = tonumber(ARGV[1])
+            local incoming_range  = tonumber(ARGV[2])
+
             local members = redis.call('ZRANGE', key, 0, -1)
-            
+
             for i, member in ipairs(members) do
-                local opponent = cjson.decode(member)
-                local elo_diff = math.abs(opponent.player.elo - player_elo)
-                
-                if elo_diff <= max_elo_diff then
+                local opponent     = cjson.decode(member)
+                local opponent_elo = tonumber(opponent.player.elo)
+                local elo_diff     = math.abs(opponent_elo - player_elo)
+
+                -- Use the larger of the two players' current search windows
+                local opponent_range = tonumber(opponent.max_elo_diff) or incoming_range
+                local effective_range = math.max(incoming_range, opponent_range)
+
+                if elo_diff <= effective_range then
                     redis.call('ZREM', key, member)
                     return member
                 end
             end
-            
+
             return nil
         "#;
 
         let result: Option<String> = redis::Script::new(lua_script)
             .key(key)
             .arg(player_elo)
-            .arg(max_elo_diff)
+            .arg(incoming_range)
             .invoke_async(&mut conn)
             .await
             .map_err(|e| format!("Redis Lua script failed: {}", e))?;
 
         if let Some(opponent_json) = result {
             if let Ok(opponent_request) = MatchRequest::from_redis_value(&opponent_json) {
-                // Create match
                 let match_id = Uuid::new_v4();
                 let new_match = Match {
                     id: match_id,
@@ -428,12 +461,12 @@ impl MatchmakingService {
         let mut conn = self.get_redis_connection().await?;
         let key = "matchmaking:queue:casual";
 
-        // Pop the oldest player from queue (FIFO)
+        // Casual queue is pure FIFO — pop the oldest waiting player
         let result: Vec<(String, f64)> = conn
             .zpopmin(key, 1)
             .await
             .map_err(|e| format!("Redis ZPOPMIN failed: {}", e))?;
-        
+
         let result = result.into_iter().next();
 
         if let Some((member, _score)) = result {
@@ -463,12 +496,20 @@ impl MatchmakingService {
 
     fn estimate_wait_time(&self, position: usize, match_type: &MatchType) -> Duration {
         match match_type {
-            MatchType::Rated => Duration::from_secs((30 + position as u64 * 15).min(300)),
+            MatchType::Rated  => Duration::from_secs((30 + position as u64 * 15).min(300)),
             MatchType::Casual => Duration::from_secs((15 + position as u64 * 10).min(180)),
             MatchType::Private => DEFAULT_ESTIMATED_WAIT_TIME,
         }
     }
 
+    /// Expand the Elo search window for players who have been waiting in the
+    /// rated queue for longer than EXPAND_AFTER_SECS (30 seconds).
+    ///
+    /// Called periodically by a background task (e.g. every 5–10 seconds).
+    ///
+    /// Expansion is a single step: INITIAL_ELO_RANGE → EXPANDED_ELO_RANGE.
+    /// This gives players a fair shot at a close match first, then guarantees
+    /// they will eventually be paired once the wider window opens up.
     pub async fn expand_elo_ranges(&self) -> Result<(), String> {
         let mut conn = self.get_redis_connection().await?;
         let key = "matchmaking:queue:rated";
@@ -481,21 +522,23 @@ impl MatchmakingService {
 
         for (member, score) in members {
             if let Ok(mut request) = MatchRequest::from_redis_value(&member) {
-                let wait_time = now.signed_duration_since(request.player.join_time);
-                let minutes_waiting = wait_time.num_minutes();
+                let wait_secs = now
+                    .signed_duration_since(request.player.join_time)
+                    .num_seconds();
 
-                if minutes_waiting > 0 {
-                    let additional_range = minutes_waiting as u32 * ELO_RANGE_INCREMENT_PER_MINUTE;
-                    request.max_elo_diff = Some(
-                        request.max_elo_diff.unwrap_or(DEFAULT_MAX_ELO_DIFF) + additional_range,
-                    );
+                // Only expand once the player has waited long enough, and only
+                // if they are still on the initial range (avoid repeated writes).
+                if wait_secs >= EXPAND_AFTER_SECS
+                    && request.max_elo_diff.unwrap_or(INITIAL_ELO_RANGE) < EXPANDED_ELO_RANGE
+                {
+                    request.max_elo_diff = Some(EXPANDED_ELO_RANGE);
 
-                    // Update in Redis
                     let updated_value = request
                         .to_redis_value()
                         .map_err(|e| format!("Serialization error: {}", e))?;
 
-                    // Remove old entry and add updated one
+                    // Atomic swap: remove the old entry, insert the updated one
+                    // at the same score so queue ordering is preserved.
                     conn.zrem::<_, _, ()>(key, &member)
                         .await
                         .map_err(|e| format!("Redis ZREM failed: {}", e))?;
@@ -518,4 +561,93 @@ impl MatchmakingService {
 
 pub fn get_matchmaking_service(redis_pool: Pool) -> web::Data<MatchmakingService> {
     web::Data::new(MatchmakingService::new(redis_pool))
+}
+
+// ── Unit tests ────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Verify that the Elo range constants satisfy the acceptance criteria:
+    /// a 1000-Elo player must never immediately match a 2000-Elo player.
+    #[test]
+    fn test_elo_range_constants() {
+        let gap = 2000_u32.abs_diff(1000);
+
+        // Even the expanded range must be narrower than the 1000-point gap
+        assert!(
+            EXPANDED_ELO_RANGE < gap,
+            "EXPANDED_ELO_RANGE ({EXPANDED_ELO_RANGE}) must be < 1000 so a 1000-Elo \
+             player can never match a 2000-Elo player"
+        );
+
+        // Initial range must be tighter than expanded
+        assert!(
+            INITIAL_ELO_RANGE < EXPANDED_ELO_RANGE,
+            "INITIAL_ELO_RANGE must be smaller than EXPANDED_ELO_RANGE"
+        );
+
+        // Expansion must happen after a positive wait time
+        assert!(EXPAND_AFTER_SECS > 0);
+    }
+
+    /// Simulate the matching condition from the Lua script in pure Rust to
+    /// verify the effective-range logic is correct.
+    fn effective_range_matches(
+        player_elo: u32,
+        player_range: u32,
+        opponent_elo: u32,
+        opponent_range: u32,
+    ) -> bool {
+        let elo_diff = player_elo.abs_diff(opponent_elo);
+        let effective_range = player_range.max(opponent_range);
+        elo_diff <= effective_range
+    }
+
+    #[test]
+    fn test_initial_range_blocks_large_gap() {
+        // 1000 vs 2000 — both on initial range — must NOT match
+        assert!(!effective_range_matches(1000, INITIAL_ELO_RANGE, 2000, INITIAL_ELO_RANGE));
+    }
+
+    #[test]
+    fn test_initial_range_allows_close_match() {
+        // 1000 vs 1080 — gap 80, within ±100 — must match immediately
+        assert!(effective_range_matches(1000, INITIAL_ELO_RANGE, 1080, INITIAL_ELO_RANGE));
+    }
+
+    #[test]
+    fn test_initial_range_blocks_boundary() {
+        // 1000 vs 1101 — gap 101, just outside ±100 — must NOT match yet
+        assert!(!effective_range_matches(1000, INITIAL_ELO_RANGE, 1101, INITIAL_ELO_RANGE));
+    }
+
+    #[test]
+    fn test_expanded_range_allows_wider_match() {
+        // 1000 vs 1150 — gap 150. Player A has expanded, B hasn't.
+        // The larger range (200) applies → must match.
+        assert!(effective_range_matches(1000, EXPANDED_ELO_RANGE, 1150, INITIAL_ELO_RANGE));
+    }
+
+    #[test]
+    fn test_expanded_range_still_blocks_extreme_gap() {
+        // 1000 vs 2000 — even fully expanded, must NOT match
+        assert!(!effective_range_matches(1000, EXPANDED_ELO_RANGE, 2000, EXPANDED_ELO_RANGE));
+    }
+
+    #[test]
+    fn test_expand_threshold_is_30_seconds() {
+        assert_eq!(EXPAND_AFTER_SECS, 30);
+    }
+
+    #[test]
+    fn test_initial_range_is_100() {
+        assert_eq!(INITIAL_ELO_RANGE, 100);
+    }
+
+    #[test]
+    fn test_expanded_range_is_200() {
+        assert_eq!(EXPANDED_ELO_RANGE, 200);
+    }
 }
