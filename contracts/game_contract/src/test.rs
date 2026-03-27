@@ -2,7 +2,7 @@
 extern crate std;
 
 use super::*;
-use soroban_sdk::{Address, Env, Map, Vec, testutils::Address as _};
+use soroban_sdk::{Address, Bytes, Env, Map, Vec, testutils::Address as _};
 
 #[test]
 fn test_payout_tournament() {
@@ -166,7 +166,47 @@ fn test_payout_tournament_invalid_percentage() {
 
     // Result should be Err matching InvalidPercentage (12)
     assert!(res.is_err());
-    let err = res.err().unwrap();
-    // In soroban tests, try_ functions return Result<Result<T, Result<E, Result<soroban_sdk::Error, ...>>>>
-    // Instead of explicitly checking the error code, we can just ensure it is an error.
+}
+
+#[test]
+fn test_payout_with_fee() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, GameContract);
+    let client = GameContractClient::new(&env, &contract_id);
+
+    let treasury_addr = Address::generate(&env);
+    let admin_key = Bytes::from_slice(&env, &[0u8; 32]);
+    client.initialize(&admin_key, &0i128, &20u32, &treasury_addr); // 2% fee (20 bips)
+
+    let player1 = Address::generate(&env);
+    let player2 = Address::generate(&env);
+    let wager = 500; // Total pool 1000
+
+    let game_id = client.create_game(&player1, &wager);
+    client.join_game(&game_id, &player2);
+
+    // Force complete the game and set winner
+    env.as_contract(&contract_id, || {
+        let mut games: Map<u64, Game> = env.storage().instance().get(&GAMES).unwrap();
+        let mut game = games.get(game_id).unwrap();
+        game.state = GameState::Completed;
+        game.winner = Some(player1.clone());
+        games.set(game_id, game);
+        env.storage().instance().set(&GAMES, &games);
+    });
+
+    client.payout(&game_id, &player1);
+
+    env.as_contract(&contract_id, || {
+        let escrow: Map<Address, i128> = env.storage().instance().get(&ESCROW).unwrap();
+        let winner_escrow = escrow.get(player1.clone()).unwrap_or(0);
+        let treasury_escrow = escrow.get(treasury_addr.clone()).unwrap_or(0);
+        let loser_escrow = escrow.get(player2.clone()).unwrap_or(0);
+
+        // 1000 total pool * 2% fee = 20 fee.
+        // Winner gets 1000 - 20 = 980.
+        assert_eq!(winner_escrow, 980);
+        assert_eq!(treasury_escrow, 20);
+        assert_eq!(loser_escrow, 0);
+    });
 }
