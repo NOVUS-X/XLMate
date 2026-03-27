@@ -23,6 +23,7 @@ use matchmaking::service::MatchmakingService;
 use matchmaking::redis::{create_redis_pool, test_redis_connection};
 use challenge::puzzle_validation::PuzzleValidationService;
 use challenge::api::configure_puzzle_routes;
+use st_core::endpoint::configure as configure_nft_routes;
 
 use crate::openapi::ApiDoc;
 
@@ -211,6 +212,11 @@ pub async fn main() -> std::io::Result<()> {
                     .wrap(JwtAuthMiddleware::new(jwt_secret.clone(), jwt_expiration))
                     .service(get_ai_suggestion)
                     .service(analyze_position),
+            )
+            // NFT routes
+            .service(
+                web::scope("/api/v1")
+                    .configure(configure_nft_routes)
             )
             // Swagger UI integration
             .service(

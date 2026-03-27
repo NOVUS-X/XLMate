@@ -1,5 +1,7 @@
 use utoipa::OpenApi;
 use crate::{players, games, auth, ai};
+use st_core::endpoint::{mint_nft, format_ai_metadata, generate_stellar_toml};
+use st_core::models::{AIMetadata, MintNFTRequest, MintNFTResponse};
 use utoipa::openapi::security::{SecurityScheme, HttpAuthScheme, HttpBuilder};
 use utoipa::Modify;
 
@@ -47,6 +49,11 @@ impl Modify for SecurityAddon {
         // AI suggestion endpoints
         ai::get_ai_suggestion,
         ai::analyze_position,
+        
+        // NFT endpoints
+        st_core::endpoint::mint_nft,
+        st_core::endpoint::format_ai_metadata,
+        st_core::endpoint::generate_stellar_toml,
     ),
     components(
         schemas(
@@ -79,6 +86,13 @@ impl Modify for SecurityAddon {
             dto::ai::PositionAnalysisResponse,
             dto::ai::AlternativeMove,
             
+            // NFT schemas
+            st_core::models::AIMetadata,
+            st_core::models::NFTMintRequest,
+            st_core::models::NFTMintResponse,
+            st_core::models::MintNFTRequest,
+            st_core::models::MintNFTResponse,
+            
             // Response schemas
             dto::responses::PlayerAdded,
             dto::responses::PlayerFound,
@@ -94,6 +108,7 @@ impl Modify for SecurityAddon {
         (name = "Games", description = "Game management operations"),
         (name = "Authentication", description = "Authentication operations"),
         (name = "AI", description = "AI suggestion operations"),
+        (name = "NFT", description = "NFT minting and metadata operations"),
         (name = "WebSocket", description = "WebSocket communication protocol")
     ),
     info(

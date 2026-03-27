@@ -18,7 +18,7 @@ interface UseMatchmakingReturn {
   gameId: string | null;
   playerColor: "white" | "black" | null;
   error: string | null;
-  joinMatchmaking: () => void;
+  joinMatchmaking: (aiPersonality?: string) => void;
   cancelMatchmaking: () => void;
   sendMove: (from: string, to: string, promotion?: string) => void;
   lastOpponentMove: { from: string; to: string; promotion?: string } | null;
@@ -84,7 +84,7 @@ export function useMatchmaking(): UseMatchmakingReturn {
     };
   }, [status]);
 
-  const joinMatchmaking = useCallback(async () => {
+  const joinMatchmaking = useCallback(async (aiPersonality?: string) => {
     setStatus("searching");
     setError(null);
 
@@ -93,6 +93,7 @@ export function useMatchmaking(): UseMatchmakingReturn {
       const res = await fetch(`${API_BASE}/v1/matchmaking/join`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ai_personality: aiPersonality ?? "aggressive" }),
         credentials: "include",
       });
 

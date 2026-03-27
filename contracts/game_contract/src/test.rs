@@ -2,7 +2,7 @@
 extern crate std;
 
 use super::*;
-use soroban_sdk::{testutils::Address as _, Address, Env, Vec, Map};
+use soroban_sdk::{Address, Env, Map, Vec, testutils::Address as _};
 
 #[test]
 fn test_payout_tournament() {
@@ -41,18 +41,20 @@ fn test_payout_tournament() {
     percentages.push_back(20);
 
     // Call payout_tournament
-    client.mock_all_auths().payout_tournament(&game_id, &winners, &percentages);
+    client
+        .mock_all_auths()
+        .payout_tournament(&game_id, &winners, &percentages);
 
     // Total pool should be wager * 2 = 2000
     // Expected payouts: 50% = 1000, 30% = 600, 20% = 400
     env.as_contract(&contract_id, || {
         let escrow: Map<Address, i128> = env.storage().instance().get(&ESCROW).unwrap();
-        
+
         // Assert sum precisely equals total pool
         let w1_escrow = escrow.get(winner1.clone()).unwrap_or(0);
         let w2_escrow = escrow.get(winner2.clone()).unwrap_or(0);
         let w3_escrow = escrow.get(winner3.clone()).unwrap_or(0);
-        
+
         assert_eq!(w1_escrow, 1000);
         assert_eq!(w2_escrow, 600);
         assert_eq!(w3_escrow, 400);
@@ -77,7 +79,7 @@ fn test_payout_tournament_dust() {
 
     let player1 = Address::generate(&env);
     let player2 = Address::generate(&env);
-    
+
     // An amount that creates an uneven division for testing "precision" remainder distribution
     let wager = 333; // total pool = 666
 
@@ -109,15 +111,17 @@ fn test_payout_tournament_dust() {
     // Remainder: 666 - 665 = 1
     // With remainder to first place: w1 gets 333 + 1 = 334.
 
-    client.mock_all_auths().payout_tournament(&game_id, &winners, &percentages);
+    client
+        .mock_all_auths()
+        .payout_tournament(&game_id, &winners, &percentages);
 
     env.as_contract(&contract_id, || {
         let escrow: Map<Address, i128> = env.storage().instance().get(&ESCROW).unwrap();
-        
+
         let w1_escrow = escrow.get(winner1.clone()).unwrap_or(0);
         let w2_escrow = escrow.get(winner2.clone()).unwrap_or(0);
         let w3_escrow = escrow.get(winner3.clone()).unwrap_or(0);
-        
+
         assert_eq!(w1_escrow, 334);
         assert_eq!(w2_escrow, 199);
         assert_eq!(w3_escrow, 133);
@@ -149,15 +153,17 @@ fn test_payout_tournament_invalid_percentage() {
     });
 
     let winner1 = Address::generate(&env);
-    
+
     let mut winners = Vec::new(&env);
     winners.push_back(winner1.clone());
 
     let mut percentages = Vec::new(&env);
     percentages.push_back(90); // Does not equal 100
 
-    let res = client.mock_all_auths().try_payout_tournament(&game_id, &winners, &percentages);
-    
+    let res = client
+        .mock_all_auths()
+        .try_payout_tournament(&game_id, &winners, &percentages);
+
     // Result should be Err matching InvalidPercentage (12)
     assert!(res.is_err());
     let err = res.err().unwrap();

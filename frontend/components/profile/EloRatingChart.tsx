@@ -7,7 +7,7 @@ import {
   Tooltip,
   ResponsiveContainer,
   ReferenceLine,
-  type TooltipProps,
+  type TooltipContentProps,
 } from 'recharts';
 
 export interface EloDataPoint {
@@ -52,7 +52,7 @@ export const MOCK_ELO_DATA: EloDataPoint[] = [
 
 // ── Custom tooltip ────────────────────────────────────────────────────────────
 
-function CustomTooltip({ active, payload }: TooltipProps<number, string>) {
+function CustomTooltip({ active, payload }: TooltipContentProps) {
   if (!active || !payload?.length) return null;
 
   const point = payload[0].payload as EloDataPoint;
@@ -96,8 +96,7 @@ interface EloRatingChartProps {
 
 export function EloRatingChart({
   data = MOCK_ELO_DATA,
-  title = 'Elo Ratin
-Closes #151g — Last 30 Games',
+  title = 'Elo Rating — Last 30 Games',
 }: EloRatingChartProps) {
   const elos = data.map((d) => d.elo);
   const minElo = Math.min(...elos);
@@ -167,7 +166,7 @@ Closes #151g — Last 30 Games',
             width={40}
           />
 
-          <Tooltip content={<CustomTooltip />} />
+          <Tooltip content={CustomTooltip} />
 
           {/* Reference line at the player's starting Elo */}
           <ReferenceLine
