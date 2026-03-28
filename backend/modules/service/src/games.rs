@@ -1,9 +1,9 @@
 use db_entity::{game, prelude::Game};
 use sea_orm::{
-    ColumnTrait, DbErr, EntityTrait, Order, QueryFilter,
-    QueryOrder, QuerySelect, ActiveModelTrait, Set,
+    DatabaseConnection, EntityTrait, QueryFilter, ColumnTrait, 
+    ActiveModelTrait, Set, TransactionTrait, DatabaseTransaction,
+    Condition, Order, QuerySelect, DbErr, QueryOrder
 };
-use sea_orm::{Condition, DatabaseConnection};
 use uuid::Uuid;
 use chrono::{DateTime, Utc, TimeZone};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -90,13 +90,13 @@ impl GameService {
 
         // Start transaction for atomic game completion and rating update
         let txn = db.begin().await
-            .map_err(|e| ApiError::DatabaseError(format!("Failed to start transaction: {}", e)))?;
+            .map_err(ApiError::from)?;
 
         // 1. Update game result
         let game_model = game::Entity::find_by_id(game_id)
             .one(&txn)
             .await
-            .map_err(|e| ApiError::DatabaseError(format!("Failed to fetch game: {}", e)))?
+            .map_err(ApiError::from)?
             .ok_or_else(|| ApiError::NotFound("Game not found".to_string()))?;
 
         // Check if game is already completed
@@ -111,7 +111,7 @@ impl GameService {
         game_active_model.updated_at = Set(Utc::now().into());
 
         game_active_model.update(&txn).await
-            .map_err(|e| ApiError::DatabaseError(format!("Failed to update game result: {}", e)))?;
+            .map_err(ApiError::from)?;
 
         // 2. Update player ratings using the rating service
         let ratings_result = RatingService::update_ratings_in_transaction(&txn, game_id, &config).await;
@@ -120,7 +120,7 @@ impl GameService {
             Ok(ratings) => {
                 // Commit transaction if both game update and rating update succeeded
                 txn.commit().await
-                    .map_err(|e| ApiError::DatabaseError(format!("Failed to commit transaction: {}", e)))?;
+                    .map_err(ApiError::from)?;
                 Ok(ratings)
             }
             Err(e) => {
@@ -141,7 +141,7 @@ impl GameService {
         let game_model = game::Entity::find_by_id(game_id)
             .one(db)
             .await
-            .map_err(|e| ApiError::DatabaseError(format!("Failed to fetch game: {}", e)))?
+            .map_err(ApiError::from)?
             .ok_or_else(|| ApiError::NotFound("Game not found".to_string()))?;
 
         let player_id = if is_white {

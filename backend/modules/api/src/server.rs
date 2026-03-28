@@ -24,6 +24,7 @@ use matchmaking::redis::{create_redis_pool, test_redis_connection};
 use challenge::puzzle_validation::PuzzleValidationService;
 use challenge::api::configure_puzzle_routes;
 use st_core::endpoint::configure as configure_nft_routes;
+use service::timeout_daemon::{GameTimeoutDaemon, TimeoutDaemonConfig};
 
 use crate::openapi::ApiDoc;
 
@@ -100,6 +101,17 @@ pub async fn main() -> std::io::Result<()> {
 
     // Initialize Puzzle Validation Service
     let puzzle_service = Arc::new(PuzzleValidationService::new(jwt_secret.clone()));
+
+    // Initialize Game Timeout Daemon
+    let timeout_config = TimeoutDaemonConfig::default();
+    let timeout_daemon = Arc::new(GameTimeoutDaemon::new((**db).clone(), timeout_config));
+    
+    // Start the timeout daemon
+    if let Err(e) = timeout_daemon.start().await {
+        eprintln!("Warning: Failed to start timeout daemon: {}", e);
+    } else {
+        eprintln!("Game timeout daemon started successfully");
+    }
 
     eprintln!("Starting HTTP server on {}", server_addr);
 
