@@ -32,6 +32,13 @@ const INITIAL_RECONNECT_DELAY = 1000; // 1 second
 const MAX_RECONNECT_DELAY = 30000; // 30 seconds
 const RECONNECT_TIMEOUT = 3000; // 3 seconds timeout for reconnection
 
+/**
+ * Custom hook for managing WebSocket connection to the chess game server.
+ * Handles connection, reconnection with exponential backoff, move queuing, and network state detection.
+ * 
+ * @param gameId - The unique identifier for the chess game, or null if no game is active
+ * @returns Object containing WebSocket status, game state, and control functions
+ */
 export function useChessSocket(gameId: string | null): UseChessSocketReturn {
   const [status, setStatus] = useState<ChessSocketStatus>("idle");
   const [lastOpponentMove, setLastOpponentMove] = useState<ChessMove | null>(null);
@@ -44,6 +51,10 @@ export function useChessSocket(gameId: string | null): UseChessSocketReturn {
   const isManualDisconnectRef = useRef(false);
   const isOnlineRef = useRef(typeof navigator !== 'undefined' ? navigator.onLine : true);
 
+  /**
+   * Clears all pending reconnection timeouts and timers.
+   * Used to prevent multiple reconnection attempts from running simultaneously.
+   */
   const clearReconnectTimeout = useCallback(() => {
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
@@ -55,6 +66,13 @@ export function useChessSocket(gameId: string | null): UseChessSocketReturn {
     }
   }, []);
 
+  /**
+   * Calculates the delay for the next reconnection attempt using exponential backoff with jitter.
+   * Jitter helps prevent thundering herd problem when multiple clients reconnect simultaneously.
+   * 
+   * @param attempt - The current reconnection attempt number (0-indexed)
+   * @returns The delay in milliseconds before the next reconnection attempt
+   */
   const calculateReconnectDelay = useCallback((attempt: number): number => {
     const baseDelay = INITIAL_RECONNECT_DELAY * Math.pow(2, attempt);
     const jitter = Math.random() * 0.3 * baseDelay; // Add 0-30% jitter
@@ -62,6 +80,13 @@ export function useChessSocket(gameId: string | null): UseChessSocketReturn {
     return Math.min(delay, MAX_RECONNECT_DELAY);
   }, []);
 
+  /**
+   * Creates a new WebSocket connection to the game server.
+   * Sets up event handlers for connection lifecycle, message handling, and error recovery.
+   * 
+   * @param attemptReconnect - Whether this connection attempt is a reconnection
+   * @returns The created WebSocket instance, or null if connection fails
+   */
   const createWebSocket = useCallback((attemptReconnect = false): WebSocket | null => {
     if (!gameId) return null;
 
@@ -176,6 +201,13 @@ export function useChessSocket(gameId: string | null): UseChessSocketReturn {
     }
   }, [gameId, calculateReconnectDelay, status]);
 
+  /**
+   * Sends a chess move to the server.
+   * If the WebSocket is connected, the move is sent immediately.
+   * If disconnected, the move is queued and will be sent upon reconnection.
+   * 
+   * @param move - The chess move to send, containing source and target squares
+   */
   const sendMove = useCallback((move: ChessMove) => {
     // If WebSocket is open, send immediately
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -200,6 +232,10 @@ export function useChessSocket(gameId: string | null): UseChessSocketReturn {
     }
   }, [gameId, status, createWebSocket]);
 
+  /**
+   * Manually disconnects from the WebSocket server.
+   * Clears the move queue and prevents automatic reconnection.
+   */
   const disconnect = useCallback(() => {
     isManualDisconnectRef.current = true;
     clearReconnectTimeout();
@@ -215,6 +251,10 @@ export function useChessSocket(gameId: string | null): UseChessSocketReturn {
     console.log("[WebSocket] Manually disconnected");
   }, [clearReconnectTimeout]);
 
+  /**
+   * Manually triggers a reconnection attempt.
+   * Closes the existing connection and initiates a new one.
+   */
   const reconnect = useCallback(() => {
     isManualDisconnectRef.current = false;
     clearReconnectTimeout();
@@ -229,8 +269,12 @@ export function useChessSocket(gameId: string | null): UseChessSocketReturn {
     createWebSocket(true);
   }, [clearReconnectTimeout, createWebSocket]);
 
-  // Handle online/offline events
+  // Handle online/offline events for network state detection
   useEffect(() => {
+    /**
+     * Handles the browser online event.
+     * Triggers reconnection when the device comes back online.
+     */
     const handleOnline = () => {
       console.log("[Network] Device is online");
       isOnlineRef.current = true;
@@ -243,6 +287,10 @@ export function useChessSocket(gameId: string | null): UseChessSocketReturn {
       }
     };
 
+    /**
+     * Handles the browser offline event.
+     * Clears pending reconnection attempts when the device goes offline.
+     */
     const handleOffline = () => {
       console.log("[Network] Device is offline");
       isOnlineRef.current = false;
