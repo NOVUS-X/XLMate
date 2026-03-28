@@ -166,7 +166,42 @@ fn test_payout_tournament_invalid_percentage() {
 
     // Result should be Err matching InvalidPercentage (12)
     assert!(res.is_err());
-    let err = res.err().unwrap();
-    // In soroban tests, try_ functions return Result<Result<T, Result<E, Result<soroban_sdk::Error, ...>>>>
-    // Instead of explicitly checking the error code, we can just ensure it is an error.
+}
+
+#[test]
+fn test_create_game_exceeds_max_stake() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, GameContract);
+    let client = GameContractClient::new(&env, &contract_id);
+
+    let player1 = Address::generate(&env);
+    let wager = 1001; // Exceeds default 1000
+
+    let res = client.try_create_game(&player1, &wager);
+    assert!(res.is_err());
+    
+    // The error should be StakeLimitExceeded (15)
+    // We can check the error code if we want to be precise:
+    // let err = res.err().unwrap();
+    // assert!(err.get_code() == 15);
+}
+
+#[test]
+fn test_set_max_stake() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, GameContract);
+    let client = GameContractClient::new(&env, &contract_id);
+
+    let player1 = Address::generate(&env);
+    
+    // Set limit to 500
+    client.set_max_stake(&500);
+    
+    // Try to create game with 600
+    let res = client.try_create_game(&player1, &600);
+    assert!(res.is_err());
+    
+    // Try to create game with 500
+    let game_id_res = client.try_create_game(&player1, &500);
+    assert!(game_id_res.is_ok());
 }
