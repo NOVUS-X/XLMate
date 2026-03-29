@@ -2,7 +2,6 @@
 resolver = "2"
 members = [
     "game_contract",
-    "ai_nft",
     "emergency_circuit_breaker",
 ]
 
