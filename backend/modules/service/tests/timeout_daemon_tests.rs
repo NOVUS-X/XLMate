@@ -1,15 +1,13 @@
 use std::time::Duration;
 use tokio::time::sleep;
 use uuid::Uuid;
-use chrono::{Utc, TimeZone};
+use chrono::Utc;
 use sea_orm::{
-    Database, DatabaseConnection, EntityTrait, ActiveModelTrait, Set, 
-    QueryFilter, ColumnTrait, TransactionTrait
+    Database, DatabaseConnection, EntityTrait, ActiveModelTrait, Set
 };
 use db_entity::{game, player, prelude::Game, prelude::Player};
 use service::timeout_daemon::{GameTimeoutDaemon, TimeoutDaemonConfig};
-use chess::RatingService;
-use error::error::ApiError;
+use std::sync::Arc;
 
 /// Integration tests for the game timeout daemon
 #[cfg(test)]
@@ -44,8 +42,6 @@ mod timeout_daemon_tests {
             username: Set("timeout_test_white".to_string()),
             elo_rating: Set(1500),
             is_enabled: Set(true),
-            created_at: Set(Utc::now().into()),
-            updated_at: Set(Utc::now().into()),
             ..Default::default()
         };
         let player1 = player1.insert(db).await.unwrap();
@@ -55,8 +51,6 @@ mod timeout_daemon_tests {
             username: Set("timeout_test_black".to_string()),
             elo_rating: Set(1400),
             is_enabled: Set(true),
-            created_at: Set(Utc::now().into()),
-            updated_at: Set(Utc::now().into()),
             ..Default::default()
         };
         let player2 = player2.insert(db).await.unwrap();
@@ -102,50 +96,33 @@ mod timeout_daemon_tests {
         white_clock_running: bool,
         black_clock_running: bool,
         last_move_minutes_ago: i64,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<(), sea_orm::DbErr> {
         let last_move_time = Utc::now() - chrono::Duration::minutes(last_move_minutes_ago);
         
-        sqlx::query!(
-            r#"
-            INSERT INTO smdb.time_control (
-                id, game_id, initial_time, increment, delay,
-                white_remaining_time, black_remaining_time,
-                white_clock_running, black_clock_running,
-                last_move_time, created_at, updated_at
-            ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
-            )
-            "#,
-            Uuid::new_v4(),
-            game_id,
-            600000i64, // 10 minutes initial time in ms
-            0i64,      // No increment
-            0i64,      // No delay
-            white_remaining_ms,
-            black_remaining_ms,
-            white_clock_running,
-            black_clock_running,
-            last_move_time,
-            Utc::now(),
-            Utc::now()
-        )
-        .execute(db)
-        .await?;
+        // Use sea_orm statement instead of sqlx macro
+        use sea_orm::ConnectionTrait;
+        let db_backend = db.get_database_backend();
+        let sql = format!(
+            "INSERT INTO smdb.time_control (id, game_id, initial_time, increment, delay, white_remaining_time, black_remaining_time, white_clock_running, black_clock_running, last_move_time, created_at, updated_at) VALUES ('{}', '{}', 600000, 0, 0, {}, {}, {}, {}, '{}', '{}', '{}')",
+            Uuid::new_v4(), game_id, white_remaining_ms, black_remaining_ms, white_clock_running, black_clock_running, last_move_time, Utc::now(), Utc::now()
+        );
         
+        db.execute(sea_orm::Statement::from_string(db_backend, sql)).await?;
         Ok(())
     }
 
     #[tokio::test]
     async fn test_timeout_daemon_basic_functionality() {
         let db = setup_test_db().await;
-        let (white_player, black_player) = create_test_players(&db).await;
+        let db_arc = Arc::new(db);
+        let (white_player, black_player) = create_test_players(&*db_arc).await;
         
         // Create a game that should timeout (started 35 minutes ago)
-        let test_game = create_timeout_test_game(&db, &white_player, &black_player, 35).await;
+        let test_game = create_timeout_test_game(&*db_arc, &white_player, &black_player, 35).await;
         
         // Create time control record with white clock running and no time left
         create_time_control_record(
-            &db,
+            &*db_arc,
             test_game.id,
             0,   // White has no time left
             300000, // Black has 5 minutes left
@@ -161,7 +138,7 @@ mod timeout_daemon_tests {
             idle_threshold_secs: 1800, // 30 minutes
         };
 
-        let daemon = GameTimeoutDaemon::new(db.clone(), config);
+        let daemon = GameTimeoutDaemon::new(db_arc.clone(), config);
         
         // Start the daemon
         daemon.start().await.unwrap();
@@ -174,7 +151,7 @@ mod timeout_daemon_tests {
         
         // Verify the game was completed
         let updated_game = Game::find_by_id(test_game.id)
-            .one(&db)
+            .one(&*db_arc)
             .await
             .unwrap()
             .expect("Game should still exist");
@@ -184,7 +161,7 @@ mod timeout_daemon_tests {
         
         // Verify winner is black (white timed out)
         match updated_game.result.unwrap() {
-            db_entity::game::ResultSide::Black => {
+            db_entity::game::ResultSide::BlackWins => {
                 // Expected - white timed out, black wins
             }
             _ => panic!("Expected black to win due to white timeout"),
@@ -192,13 +169,13 @@ mod timeout_daemon_tests {
         
         // Verify player ratings were updated
         let updated_white = Player::find_by_id(white_player.id)
-            .one(&db)
+            .one(&*db_arc)
             .await
             .unwrap()
             .expect("White player should still exist");
             
         let updated_black = Player::find_by_id(black_player.id)
-            .one(&db)
+            .one(&*db_arc)
             .await
             .unwrap()
             .expect("Black player should still exist");
@@ -207,20 +184,21 @@ mod timeout_daemon_tests {
         assert!(updated_white.elo_rating < 1500, "White should lose rating points");
         assert!(updated_black.elo_rating > 1400, "Black should gain rating points");
         
-        cleanup_test_data(&db).await;
+        cleanup_test_data(&*db_arc).await;
     }
 
     #[tokio::test]
     async fn test_timeout_daemon_both_players_timeout() {
         let db = setup_test_db().await;
-        let (white_player, black_player) = create_test_players(&db).await;
+        let db_arc = Arc::new(db);
+        let (white_player, black_player) = create_test_players(&*db_arc).await;
         
         // Create a game that should timeout
-        let test_game = create_timeout_test_game(&db, &white_player, &black_player, 25).await;
+        let test_game = create_timeout_test_game(&*db_arc, &white_player, &black_player, 25).await;
         
         // Create time control record with both players having no time left
         create_time_control_record(
-            &db,
+            &*db_arc,
             test_game.id,
             0,   // White has no time left
             0,   // Black has no time left
@@ -235,7 +213,7 @@ mod timeout_daemon_tests {
             idle_threshold_secs: 1800,
         };
 
-        let daemon = GameTimeoutDaemon::new(db.clone(), config);
+        let daemon = GameTimeoutDaemon::new(db_arc.clone(), config);
         daemon.start().await.unwrap();
         
         sleep(Duration::from_secs(3)).await;
@@ -243,7 +221,7 @@ mod timeout_daemon_tests {
         
         // Verify the game was completed as a draw
         let updated_game = Game::find_by_id(test_game.id)
-            .one(&db)
+            .one(&*db_arc)
             .await
             .unwrap()
             .expect("Game should still exist");
@@ -258,20 +236,21 @@ mod timeout_daemon_tests {
             _ => panic!("Expected draw when both players timeout"),
         }
         
-        cleanup_test_data(&db).await;
+        cleanup_test_data(&*db_arc).await;
     }
 
     #[tokio::test]
     async fn test_timeout_daemon_no_timeout_for_active_game() {
         let db = setup_test_db().await;
-        let (white_player, black_player) = create_test_players(&db).await;
+        let db_arc = Arc::new(db);
+        let (white_player, black_player) = create_test_players(&*db_arc).await;
         
         // Create a recent game that should NOT timeout
-        let test_game = create_timeout_test_game(&db, &white_player, &black_player, 5).await;
+        let test_game = create_timeout_test_game(&*db_arc, &white_player, &black_player, 5).await;
         
         // Create time control record with plenty of time left
         create_time_control_record(
-            &db,
+            &*db_arc,
             test_game.id,
             300000,   // White has 5 minutes left
             300000,   // Black has 5 minutes left
@@ -286,7 +265,7 @@ mod timeout_daemon_tests {
             idle_threshold_secs: 1800,
         };
 
-        let daemon = GameTimeoutDaemon::new(db.clone(), config);
+        let daemon = GameTimeoutDaemon::new(db_arc.clone(), config);
         daemon.start().await.unwrap();
         
         sleep(Duration::from_secs(3)).await;
@@ -294,19 +273,20 @@ mod timeout_daemon_tests {
         
         // Verify the game is still active
         let updated_game = Game::find_by_id(test_game.id)
-            .one(&db)
+            .one(&*db_arc)
             .await
             .unwrap()
             .expect("Game should still exist");
             
         assert!(updated_game.result.is_none(), "Active game should not be completed");
         
-        cleanup_test_data(&db).await;
+        cleanup_test_data(&*db_arc).await;
     }
 
     #[tokio::test]
     async fn test_timeout_daemon_config_validation() {
         let db = setup_test_db().await;
+        let db_arc = Arc::new(db);
         
         // Test default config
         let default_config = TimeoutDaemonConfig::default();
@@ -325,18 +305,19 @@ mod timeout_daemon_tests {
         assert_eq!(custom_config.idle_threshold_secs, 600);
         
         // Test daemon creation
-        let daemon = GameTimeoutDaemon::new(db.clone(), custom_config);
+        let daemon = GameTimeoutDaemon::new(db_arc.clone(), custom_config);
         assert!(!daemon.is_running());
         
-        cleanup_test_data(&db).await;
+        cleanup_test_data(&*db_arc).await;
     }
 
     #[tokio::test]
     async fn test_timeout_daemon_prevent_multiple_starts() {
         let db = setup_test_db().await;
+        let db_arc = Arc::new(db);
         let config = TimeoutDaemonConfig::default();
         
-        let daemon = GameTimeoutDaemon::new(db.clone(), config);
+        let daemon = GameTimeoutDaemon::new(db_arc.clone(), config);
         
         // First start should succeed
         assert!(daemon.start().await.is_ok());
@@ -350,6 +331,6 @@ mod timeout_daemon_tests {
         daemon.stop();
         assert!(!daemon.is_running());
         
-        cleanup_test_data(&db).await;
+        cleanup_test_data(&*db_arc).await;
     }
 }
