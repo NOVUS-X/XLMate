@@ -1,0 +1,301 @@
+#![no_std]
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, BytesN, Env, Map,
+    String, Symbol,
+};
+
+// AI NFT metadata structure
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct AINFTMetadata {
+    pub owner: Address,
+    pub nft_id: u64,
+    pub metadata_hash: BytesN<32>,  // IPFS/content hash
+    pub personality_traits: String, // JSON describing personality
+    pub created_at: u64,
+    pub minter: Address, // Original minting user
+}
+
+// Contract storage keys
+const ADMIN: Symbol = symbol_short!("ADMIN");
+const NFT_COUNTER: Symbol = symbol_short!("NFT_CNT");
+const NFT_OWNERS: Symbol = symbol_short!("OWNERS");
+const NFT_METADATA: Symbol = symbol_short!("METADATA");
+const MINTER_REGISTRY: Symbol = symbol_short!("MINTER");
+
+// Contract errors
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+pub enum ContractError {
+    NotAuthorized = 1,
+    NFTNotFound = 2,
+    InvalidMetadataHash = 3,
+    AlreadyTransferred = 4,
+    InvalidOwner = 5,
+    MinterMismatch = 6,
+}
+
+#[contract]
+pub struct AINFTContract;
+
+#[contractimpl]
+impl AINFTContract {
+    /// Initialize the AI NFT contract with an admin address
+    pub fn initialize(env: Env, admin: Address) {
+        if env.storage().instance().has(&ADMIN) {
+            panic!("Contract already initialized");
+        }
+        admin.require_auth();
+        env.storage().instance().set(&ADMIN, &admin);
+        env.storage().instance().set(&NFT_COUNTER, &0u64);
+    }
+
+    /// Get the current admin
+    pub fn admin(env: Env) -> Address {
+        env.storage().instance().get(&ADMIN).expect("Admin not set")
+    }
+
+    /// Mint a new AI NFT with metadata hash
+    pub fn mint(
+        env: Env,
+        minter: Address,
+        metadata_hash: BytesN<32>,
+        personality_traits: String,
+    ) -> u64 {
+        minter.require_auth();
+
+        // Increment NFT counter
+        let mut nft_counter: u64 = env.storage().instance().get(&NFT_COUNTER).unwrap_or(0);
+        nft_counter += 1;
+        env.storage().instance().set(&NFT_COUNTER, &nft_counter);
+
+        // Create NFT metadata
+        let nft = AINFTMetadata {
+            owner: minter.clone(),
+            nft_id: nft_counter,
+            metadata_hash: metadata_hash.clone(),
+            personality_traits,
+            created_at: env.ledger().sequence() as u64,
+            minter: minter.clone(),
+        };
+
+        // Store metadata with owner association
+        let mut nft_metadata: Map<u64, AINFTMetadata> = env
+            .storage()
+            .instance()
+            .get(&NFT_METADATA)
+            .unwrap_or(Map::new(&env));
+        nft_metadata.set(nft_counter, nft);
+        env.storage().instance().set(&NFT_METADATA, &nft_metadata);
+
+        // Record owner
+        let mut owners: Map<u64, Address> = env
+            .storage()
+            .instance()
+            .get(&NFT_OWNERS)
+            .unwrap_or(Map::new(&env));
+        owners.set(nft_counter, minter.clone());
+        env.storage().instance().set(&NFT_OWNERS, &owners);
+
+        // Record minter for this NFT
+        let mut minter_registry: Map<u64, Address> = env
+            .storage()
+            .instance()
+            .get(&MINTER_REGISTRY)
+            .unwrap_or(Map::new(&env));
+        minter_registry.set(nft_counter, minter);
+        env.storage()
+            .instance()
+            .set(&MINTER_REGISTRY, &minter_registry);
+
+        nft_counter
+    }
+
+    /// Transfer NFT from current owner to a new owner
+    pub fn transfer(env: Env, nft_id: u64, to: Address) -> Result<(), ContractError> {
+        let mut owners: Map<u64, Address> = env
+            .storage()
+            .instance()
+            .get(&NFT_OWNERS)
+            .ok_or(ContractError::NFTNotFound)?;
+
+        let current_owner = owners.get(nft_id).ok_or(ContractError::NFTNotFound)?;
+        current_owner.require_auth();
+
+        // Update owner
+        owners.set(nft_id, to.clone());
+        env.storage().instance().set(&NFT_OWNERS, &owners);
+
+        Ok(())
+    }
+
+    /// Get the current owner of an NFT
+    pub fn owner_of(env: Env, nft_id: u64) -> Result<Address, ContractError> {
+        let owners: Map<u64, Address> = env
+            .storage()
+            .instance()
+            .get(&NFT_OWNERS)
+            .ok_or(ContractError::NFTNotFound)?;
+
+        owners.get(nft_id).ok_or(ContractError::NFTNotFound)
+    }
+
+    /// Get the minter of an NFT (original creator)
+    pub fn minter_of(env: Env, nft_id: u64) -> Result<Address, ContractError> {
+        let minter_registry: Map<u64, Address> = env
+            .storage()
+            .instance()
+            .get(&MINTER_REGISTRY)
+            .ok_or(ContractError::NFTNotFound)?;
+
+        minter_registry
+            .get(nft_id)
+            .ok_or(ContractError::MinterMismatch)
+    }
+
+    /// Get full metadata of an NFT
+    pub fn metadata(env: Env, nft_id: u64) -> Result<AINFTMetadata, ContractError> {
+        let nft_metadata: Map<u64, AINFTMetadata> = env
+            .storage()
+            .instance()
+            .get(&NFT_METADATA)
+            .ok_or(ContractError::NFTNotFound)?;
+
+        nft_metadata.get(nft_id).ok_or(ContractError::NFTNotFound)
+    }
+
+    /// Get total number of NFTs minted
+    pub fn total_supply(env: Env) -> u64 {
+        env.storage().instance().get(&NFT_COUNTER).unwrap_or(0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::{Address, BytesN, Env};
+
+    #[test]
+    fn test_ai_nft_mint_and_transfer() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let minter = Address::generate(&env);
+        let new_owner = Address::generate(&env);
+
+        // Initialize contract
+        let contract_id = env.register_contract(None, AINFTContract);
+        let client = AINFTContractClient::new(&env, &contract_id);
+        client.initialize(&admin);
+
+        // Create metadata hash
+        let metadata_hash: BytesN<32> = BytesN::from_array(&env, &[1u8; 32]);
+        let personality = String::from_str(&env, "creative_artist_robot");
+
+        // Mint NFT
+        let nft_id = client.mint(&minter, &metadata_hash, &personality);
+        assert_eq!(nft_id, 1u64);
+
+        // Verify owner
+        let owner = client.owner_of(&nft_id);
+        assert_eq!(owner, minter);
+
+        // Verify minter is recorded
+        let minter_addr = client.minter_of(&nft_id);
+        assert_eq!(minter_addr, minter);
+
+        // Verify metadata includes minter
+        let nft_meta = client.metadata(&nft_id);
+        assert_eq!(nft_meta.minter, minter);
+        assert_eq!(nft_meta.metadata_hash, metadata_hash);
+        assert_eq!(nft_meta.personality_traits, personality);
+
+        // Transfer to new owner
+        client.transfer(&nft_id, &new_owner);
+
+        // Verify new owner
+        let new_owner_check = client.owner_of(&nft_id);
+        assert_eq!(new_owner_check, new_owner);
+
+        // Verify minter is still the original minter
+        let minter_check = client.minter_of(&nft_id);
+        assert_eq!(minter_check, minter);
+
+        // Verify total supply
+        assert_eq!(client.total_supply(), 1u64);
+    }
+
+    #[test]
+    fn test_multiple_nft_minting() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let minter1 = Address::generate(&env);
+        let minter2 = Address::generate(&env);
+
+        let contract_id = env.register_contract(None, AINFTContract);
+        let client = AINFTContractClient::new(&env, &contract_id);
+        client.initialize(&admin);
+
+        let metadata_hash1: BytesN<32> = BytesN::from_array(&env, &[1u8; 32]);
+        let metadata_hash2: BytesN<32> = BytesN::from_array(&env, &[2u8; 32]);
+
+        // Mint first NFT
+        let nft_id1 = client.mint(&minter1, &metadata_hash1, &String::from_str(&env, "bot1"));
+
+        // Mint second NFT with different minter
+        let nft_id2 = client.mint(&minter2, &metadata_hash2, &String::from_str(&env, "bot2"));
+
+        assert_eq!(nft_id1, 1u64);
+        assert_eq!(nft_id2, 2u64);
+
+        // Verify each NFT has correct minter and metadata
+        let minter1_check = client.minter_of(&nft_id1);
+        assert_eq!(minter1_check, minter1);
+
+        let minter2_check = client.minter_of(&nft_id2);
+        assert_eq!(minter2_check, minter2);
+
+        let meta1 = client.metadata(&nft_id1);
+        let meta2 = client.metadata(&nft_id2);
+
+        assert_eq!(meta1.minter, minter1);
+        assert_eq!(meta1.metadata_hash, metadata_hash1);
+
+        assert_eq!(meta2.minter, minter2);
+        assert_eq!(meta2.metadata_hash, metadata_hash2);
+
+        // Total supply should be 2
+        assert_eq!(client.total_supply(), 2u64);
+    }
+
+    #[test]
+    fn test_metadata_hash_association() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let minter = Address::generate(&env);
+
+        let contract_id = env.register_contract(None, AINFTContract);
+        let client = AINFTContractClient::new(&env, &contract_id);
+        client.initialize(&admin);
+
+        // Create specific metadata hash
+        let metadata_hash: BytesN<32> = BytesN::from_array(&env, &[42u8; 32]);
+        let personality = String::from_str(&env, "philosophical_ai");
+
+        // Mint with specific hash
+        let nft_id = client.mint(&minter, &metadata_hash, &personality);
+
+        // Verify metadata hash is correctly stored and associated with minter
+        let retrieved = client.metadata(&nft_id);
+        assert_eq!(retrieved.metadata_hash, metadata_hash);
+        assert_eq!(retrieved.minter, minter);
+        assert_eq!(retrieved.owner, minter);
+        assert_eq!(retrieved.personality_traits, personality);
+    }
+}

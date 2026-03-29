@@ -2,7 +2,48 @@
 extern crate std;
 
 use super::*;
-use soroban_sdk::{Address, Env, Map, Vec, testutils::Address as _};
+use soroban_sdk::testutils::Address as _;
+use soroban_sdk::token::{StellarAssetClient, TokenClient};
+use soroban_sdk::{Address, Bytes, Env, Map, Vec};
+
+/// Helper: seed a completed game directly into contract storage, bypassing
+/// token transfers and auth checks.  Returns the game_id (always 1).
+fn seed_completed_game(
+    env: &Env,
+    contract_id: &Address,
+    player1: &Address,
+    player2: &Address,
+    wager: i128,
+) -> u64 {
+    let game_id: u64 = 1;
+    env.as_contract(contract_id, || {
+        // Write game counter
+        env.storage().instance().set(&GAME_COUNTER, &game_id);
+
+        // Build a completed game
+        let game = Game {
+            id: game_id,
+            player1: player1.clone(),
+            player2: Some(player2.clone()),
+            state: GameState::Completed,
+            wager_amount: wager,
+            current_turn: 1,
+            moves: Vec::new(env),
+            created_at: 0,
+            winner: None,
+        };
+        let mut games: Map<u64, Game> = Map::new(env);
+        games.set(game_id, game);
+        env.storage().instance().set(&GAMES, &games);
+
+        // Seed escrow so payout_tournament can debit both players
+        let mut escrow: Map<Address, i128> = Map::new(env);
+        escrow.set(player1.clone(), wager);
+        escrow.set(player2.clone(), wager);
+        env.storage().instance().set(&ESCROW, &escrow);
+    });
+    game_id
+}
 
 #[test]
 fn test_payout_tournament() {
@@ -12,19 +53,9 @@ fn test_payout_tournament() {
 
     let player1 = Address::generate(&env);
     let player2 = Address::generate(&env);
-    let wager = 1000;
+    let wager: i128 = 1000;
 
-    let game_id = client.create_game(&player1, &wager);
-    client.join_game(&game_id, &player2);
-
-    // Force complete the game directly in storage for testing purposes
-    env.as_contract(&contract_id, || {
-        let mut games: Map<u64, Game> = env.storage().instance().get(&GAMES).unwrap();
-        let mut game = games.get(game_id).unwrap();
-        game.state = GameState::Completed;
-        games.set(game_id, game);
-        env.storage().instance().set(&GAMES, &games);
-    });
+    let game_id = seed_completed_game(&env, &contract_id, &player1, &player2, wager);
 
     let winner1 = Address::generate(&env);
     let winner2 = Address::generate(&env);
@@ -81,18 +112,9 @@ fn test_payout_tournament_dust() {
     let player2 = Address::generate(&env);
 
     // An amount that creates an uneven division for testing "precision" remainder distribution
-    let wager = 333; // total pool = 666
+    let wager: i128 = 333; // total pool = 666
 
-    let game_id = client.create_game(&player1, &wager);
-    client.join_game(&game_id, &player2);
-
-    env.as_contract(&contract_id, || {
-        let mut games: Map<u64, Game> = env.storage().instance().get(&GAMES).unwrap();
-        let mut game = games.get(game_id).unwrap();
-        game.state = GameState::Completed;
-        games.set(game_id, game);
-        env.storage().instance().set(&GAMES, &games);
-    });
+    let game_id = seed_completed_game(&env, &contract_id, &player1, &player2, wager);
 
     let winner1 = Address::generate(&env);
     let winner2 = Address::generate(&env);
@@ -107,9 +129,9 @@ fn test_payout_tournament_dust() {
     percentages.push_back(50); // 333
     percentages.push_back(30); // 199.8 -> 199
     percentages.push_back(20); // 133.2 -> 133
-    // Sum without remainder distribution: 333 + 199 + 133 = 665
-    // Remainder: 666 - 665 = 1
-    // With remainder to first place: w1 gets 333 + 1 = 334.
+                               // Sum without remainder distribution: 333 + 199 + 133 = 665
+                               // Remainder: 666 - 665 = 1
+                               // With remainder to first place: w1 gets 333 + 1 = 334.
 
     client
         .mock_all_auths()
@@ -139,18 +161,9 @@ fn test_payout_tournament_invalid_percentage() {
 
     let player1 = Address::generate(&env);
     let player2 = Address::generate(&env);
-    let wager = 1000;
+    let wager: i128 = 1000;
 
-    let game_id = client.create_game(&player1, &wager);
-    client.join_game(&game_id, &player2);
-
-    env.as_contract(&contract_id, || {
-        let mut games: Map<u64, Game> = env.storage().instance().get(&GAMES).unwrap();
-        let mut game = games.get(game_id).unwrap();
-        game.state = GameState::Completed;
-        games.set(game_id, game);
-        env.storage().instance().set(&GAMES, &games);
-    });
+    let game_id = seed_completed_game(&env, &contract_id, &player1, &player2, wager);
 
     let winner1 = Address::generate(&env);
 
@@ -166,9 +179,113 @@ fn test_payout_tournament_invalid_percentage() {
 
     // Result should be Err matching InvalidPercentage (12)
     assert!(res.is_err());
-    let err = res.err().unwrap();
-    // In soroban tests, try_ functions return Result<Result<T, Result<E, Result<soroban_sdk::Error, ...>>>>
-    // Instead of explicitly checking the error code, we can just ensure it is an error.
+}
+
+#[test]
+fn test_payout_with_fee() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, GameContract);
+    let client = GameContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let player1 = Address::generate(&env);
+    let player2 = Address::generate(&env);
+    let treasury_addr = Address::generate(&env);
+
+    // Register token contract
+    let stellar_token = env.register_stellar_asset_contract_v2(issuer);
+    let token_address = stellar_token.address();
+    let stellar_asset_client = StellarAssetClient::new(&env, &token_address);
+
+    // Initialize Game Contract with token
+    client.initialize_token(&admin, &token_address);
+
+    // Initialize Puzzle Rewards/Fees
+    let admin_key = Bytes::from_slice(&env, &[0u8; 32]);
+    client.initialize_puzzle_rewards(&admin, &admin_key, &0i128, &20u32, &treasury_addr); // 2% fee (20 bips)
+
+    let wager = 500; // Total pool 1000
+    stellar_asset_client.mint(&player1, &wager);
+    stellar_asset_client.mint(&player2, &wager);
+
+    let game_id = client.create_game(&player1, &wager);
+    client.join_game(&game_id, &player2);
+
+    // Force complete the game and set winner
+    env.as_contract(&contract_id, || {
+        let mut games: Map<u64, Game> = env.storage().instance().get(&GAMES).unwrap();
+        let mut game = games.get(game_id).unwrap();
+        game.state = GameState::Completed;
+        game.winner = Some(player1.clone());
+        games.set(game_id, game);
+        env.storage().instance().set(&GAMES, &games);
+    });
+
+    client.payout(&game_id, &player1);
+
+    env.as_contract(&contract_id, || {
+        let escrow: Map<Address, i128> = env.storage().instance().get(&ESCROW).unwrap();
+        let winner_escrow = escrow.get(player1.clone()).unwrap_or(0);
+        let treasury_escrow = escrow.get(treasury_addr.clone()).unwrap_or(0);
+        let loser_escrow = escrow.get(player2.clone()).unwrap_or(0);
+
+        assert_eq!(winner_escrow, 980);
+        assert_eq!(treasury_escrow, 20);
+        assert_eq!(loser_escrow, 0);
+    });
+}
+
+#[test]
+fn test_configure_fees_permissioned() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, GameContract);
+    let client = GameContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let treasury_addr = Address::generate(&env);
+    let admin_key = Bytes::from_slice(&env, &[0u8; 32]);
+    
+    env.mock_all_auths();
+    client.initialize_puzzle_rewards(&admin, &admin_key, &0i128, &0u32, &treasury_addr);
+
+    // Update fees as admin
+    let new_treasury = Address::generate(&env);
+    client.configure_fees(&admin, &50, &new_treasury); // 5% fee
+
+    // Verify update
+    // (In a real test we'd check storage or run a payout, but here we just ensure it doesn't panic)
+    
+    // Attempt update as someone else should panic
+    let stranger = Address::generate(&env);
+    let res = client.try_configure_fees(&stranger, &100, &new_treasury);
+    assert!(res.is_err());
+}
+
+#[test]
+fn test_upgrade_admin_logic() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, GameContract);
+    let client = GameContractClient::new(&env, &contract_id);
+
+    let admin_key = Bytes::from_slice(&env, &[0u8; 32]);
+    
+    // Manually set ADMIN_KEY to simulate old initialization (pre-CONTRACT_ADMIN)
+    env.as_contract(&contract_id, || {
+        env.storage().instance().set(&symbol_short!("ADMIN_KEY"), &admin_key);
+    });
+
+    let admin = Address::generate(&env);
+    env.mock_all_auths();
+    
+    // upgrade_admin should allow setting the admin for the first time
+    client.upgrade_admin(&admin);
+
+    // Further calls to upgrade_admin should panic
+    let stranger = Address::generate(&env);
+    let res = client.try_upgrade_admin(&stranger);
+    assert!(res.is_err());
 }
 
 #[test]

@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
+members = ["game_contract", "ai_nft"]
 members = [
     "game_contract",
     "emergency_circuit_breaker",

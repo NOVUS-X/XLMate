@@ -56,10 +56,7 @@ pub mod match_escrow {
             .checked_sub(escrow.deposit_time)
             .ok_or(EscrowError::ArithmeticOverflow)?;
 
-        require!(
-            elapsed >= TWENTY_FOUR_HOURS,
-            EscrowError::TimeoutNotReached
-        );
+        require!(elapsed >= TWENTY_FOUR_HOURS, EscrowError::TimeoutNotReached);
 
         let refund_amount = escrow.amount;
         let player = ctx.accounts.player.key();

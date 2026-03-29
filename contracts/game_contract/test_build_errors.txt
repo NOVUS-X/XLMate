@@ -1,0 +1,9 @@
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   C:\Users\Lenovo N24\Desktop\XLMate\contracts\game_contract\Cargo.toml
+workspace: C:\Users\Lenovo N24\Desktop\XLMate\contracts\Cargo.toml
+   Compiling backtrace v0.3.76
+   Compiling soroban-env-host v21.2.1
+error: error calling dlltool 'dlltool.exe': program not found
+
+error: could not compile `backtrace` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...

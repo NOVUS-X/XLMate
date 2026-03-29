@@ -2,23 +2,38 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import dynamic from "next/dynamic";
-const ChessboardComponent = dynamic(() => import("@/components/chess/ChessboardComponent"), { ssr: false });
+const ChessboardComponent = dynamic(
+  () => import("@/components/chess/ChessboardComponent"),
+  { ssr: false },
+);
 import { Chess } from "chess.js";
-const GameModeButtons = dynamic(() => import("@/components/GameModeButtons"), { ssr: false });
+const GameModeButtons = dynamic(() => import("@/components/GameModeButtons"), {
+  ssr: false,
+});
 const AiPersonalityModal = dynamic(
-  () => import("@/app/components/matchmaking/AiPersonalityModal").then((m) => ({ default: m.AiPersonalityModal })),
-  { ssr: false }
+  () =>
+    import("@/app/components/matchmaking/AiPersonalityModal").then((m) => ({
+      default: m.AiPersonalityModal,
+    })),
+  { ssr: false },
 );
 import { FaUser } from "react-icons/fa";
 import { RiAliensFill } from "react-icons/ri";
 import { useChessSocket } from "@/hook/useChessSocket";
 import { useMatchmaking } from "@/hook/useMatchmaking";
+import { useRouter } from "next/navigation";
 import { useMatchmakingContext } from "@/context/matchmakingContext";
 
 export default function Home() {
   const [game] = useState(new Chess());
   const [position, setPosition] = useState("start");
   const [gameMode, setGameMode] = useState<"online" | "bot" | null>(null);
+  const router = useRouter();
+  const [onlinePlayerCount, setOnlinePlayerCount] = useState<number | null>(
+    null,
+  );
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+  const PLAYER_COUNT_ENDPOINT = `${API_BASE}/v1/players/online`;
   const [isPersonalityModalOpen, setIsPersonalityModalOpen] = useState(false);
 
   const { aiPersonality } = useMatchmakingContext();
@@ -42,16 +57,54 @@ export default function Home() {
   } = useChessSocket(gameId);
 
   // Choose which sendMove to use based on game state
-  const sendMove = useCallback((from: string, to: string, promotion?: string) => {
-    if (gameId) {
-      socketSendMove({ from, to, promotion: promotion || "q" });
-    } else {
-      matchmakingSendMove(from, to, promotion);
-    }
-  }, [gameId, socketSendMove, matchmakingSendMove]);
+  const sendMove = useCallback(
+    (from: string, to: string, promotion?: string) => {
+      if (gameId) {
+        socketSendMove({ from, to, promotion: promotion || "q" });
+      } else {
+        matchmakingSendMove(from, to, promotion);
+      }
+    },
+    [gameId, socketSendMove, matchmakingSendMove],
+  );
 
   // Kick off matchmaking when online mode is selected — but only after personality is confirmed
   // (joinMatchmaking is now called from handlePersonalityConfirm, not here)
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchOnlinePlayers = async () => {
+      try {
+        const resp = await fetch(PLAYER_COUNT_ENDPOINT);
+        if (!resp.ok) {
+          throw new Error(`HTTP ${resp.status}`);
+        }
+        const data = (await resp.json()) as { count?: number };
+        if (isMounted && typeof data.count === "number") {
+          setOnlinePlayerCount(data.count);
+        }
+      } catch (err) {
+        console.error("Failed to fetch player count", err);
+        if (isMounted) {
+          setOnlinePlayerCount(null);
+        }
+      }
+    };
+
+    fetchOnlinePlayers();
+    const intervalId = window.setInterval(fetchOnlinePlayers, 20000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(intervalId);
+    };
+  }, [PLAYER_COUNT_ENDPOINT]);
+
+  useEffect(() => {
+    if (matchmakingStatus === "match_found" && gameId) {
+      router.push(`/play/${gameId}`);
+    }
+  }, [matchmakingStatus, gameId, router]);
 
   // Apply opponent's move to local chess state
   useEffect(() => {
@@ -74,7 +127,7 @@ export default function Home() {
       ((playerColor === "white" && game.turn() === "w") ||
         (playerColor === "black" && game.turn() === "b")));
 
-  const handleMove = ({
+  const handleMove = useCallback(({
     sourceSquare,
     targetSquare,
   }: {
@@ -102,7 +155,7 @@ export default function Home() {
     } catch {
       return false;
     }
-  };
+  }, [isMyTurn, game, gameMode, sendMove]);
 
   const handleExit = () => {
     if (gameMode === "online") {
@@ -137,10 +190,11 @@ export default function Home() {
   // Searching / waiting overlay label
   const onlineStatusLabel = () => {
     if (socketStatus === "reconnecting") return "🔄 Reconnecting...";
-    if (matchmakingStatus === "searching") return "🔍 Searching for opponent…";
     if (matchmakingStatus === "match_found") return "✅ Match found! Starting…";
-    if (socketStatus === "connected") return `🟢 Online Match (you are ${playerColor})`;
-    if (matchmakingStatus === "error" || socketStatus === "error") return `❌ ${matchmakingError ?? "Connection error"}`;
+    if (socketStatus === "connected")
+      return `🟢 Online Match (you are ${playerColor})`;
+    if (matchmakingStatus === "error" || socketStatus === "error")
+      return `❌ ${matchmakingError ?? "Connection error"}`;
     return "Online Match";
   };
 
@@ -198,9 +252,45 @@ export default function Home() {
 
             {/* Searching spinner */}
             {gameMode === "online" && matchmakingStatus === "searching" && (
-              <div className="mt-3 flex items-center gap-2 text-teal-400 text-sm animate-pulse px-1">
-                <div className="w-3 h-3 rounded-full border-2 border-teal-400 border-t-transparent animate-spin" />
-                Waiting for an opponent to join…
+              <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center">
+                <div className="bg-gray-800 p-6 rounded-xl border border-yellow-500/30 text-center">
+                  <div className="flex flex-col items-center gap-4">
+                    <h3 className="text-xl font-bold text-yellow-400">
+                      Looking for opponent...
+                    </h3>
+                    <span className="relative flex h-8 w-8">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full border-2 border-yellow-400 opacity-75 [animation-duration:0.8s]"></span>
+                      <span className="relative inline-flex rounded-full h-8 w-8 border-2 border-yellow-500 bg-yellow-500/10"></span>
+                    </span>
+
+                    <p className="text-gray-300 text-sm">
+                      {onlinePlayerCount} Players online
+                    </p>
+
+                    <button
+                      onClick={handleExit}
+                      className="px-4 py-2 bg-gradient-to-r from-red-500/20 to-red-600/20 hover:from-red-500/30 hover:to-red-600/30 
+                  border border-red-500/30 hover:border-red-400/50 rounded-lg text-white font-medium transition-all duration-300 
+                  flex items-center gap-2 group hover:scale-105 active:scale-95"
+                    >
+                      <span>Cancel Search</span>
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="h-5 w-5"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M6 18L18 6M6 6l12 12"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -210,8 +300,12 @@ export default function Home() {
                 <div className="bg-gray-800 p-6 rounded-xl border border-yellow-500/30 text-center">
                   <div className="flex flex-col items-center gap-4">
                     <div className="w-8 h-8 rounded-full border-2 border-yellow-500 border-t-transparent animate-spin" />
-                    <h3 className="text-xl font-bold text-yellow-400">Reconnecting...</h3>
-                    <p className="text-gray-300 text-sm">Attempting to restore connection</p>
+                    <h3 className="text-xl font-bold text-yellow-400">
+                      Reconnecting...
+                    </h3>
+                    <p className="text-gray-300 text-sm">
+                      Attempting to restore connection
+                    </p>
                     <button
                       onClick={reconnectSocket}
                       className="mt-2 px-4 py-2 bg-yellow-500/20 hover:bg-yellow-500/30 border border-yellow-500/50 rounded-lg text-yellow-400 font-medium transition-all duration-300"
