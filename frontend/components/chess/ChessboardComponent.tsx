@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import Image from "next/image";
 
 import WhiteKing from "./chesspieces/white-king.svg";
@@ -22,29 +22,72 @@ interface ChessboardComponentProps {
   width?: number; // Added width as optional prop
 }
 
-// Remove the first component implementation and keep only the detailed one
+// Parse FEN string to board state - memoized pure function
+const parseFen = (fen: string): string[][] => {
+  if (fen === "start") {
+    return [
+      ["bR", "bN", "bB", "bQ", "bK", "bB", "bN", "bR"],
+      ["bP", "bP", "bP", "bP", "bP", "bP", "bP", "bP"],
+      ["", "", "", "", "", "", "", ""],
+      ["", "", "", "", "", "", "", ""],
+      ["", "", "", "", "", "", "", ""],
+      ["", "", "", "", "", "", "", ""],
+      ["wP", "wP", "wP", "wP", "wP", "wP", "wP", "wP"],
+      ["wR", "wN", "wB", "wQ", "wK", "wB", "wN", "wR"],
+    ];
+  }
+
+  try {
+    const fenParts = fen.split(" ");
+    const rows = fenParts[0].split("/");
+    const newBoard: string[][] = [];
+
+    rows.forEach((row) => {
+      const newRow: string[] = [];
+      for (let i = 0; i < row.length; i++) {
+        const char = row[i];
+        if (isNaN(parseInt(char))) {
+          const color = char === char.toUpperCase() ? "w" : "b";
+          newRow.push(`${color}${char.toUpperCase()}`);
+        } else {
+          for (let j = 0; j < parseInt(char); j++) {
+            newRow.push("");
+          }
+        }
+      }
+      newBoard.push(newRow);
+    });
+
+    return newBoard;
+  } catch (e) {
+    console.error("Error parsing FEN:", e);
+    return Array.from({ length: 8 }, () => Array(8).fill(""));
+  }
+};
+
+// ChessboardComponent with full memoization
 const ChessboardComponent: React.FC<ChessboardComponentProps> = ({
   position,
   onDrop,
   width,
 }) => {
   const [mounted, setMounted] = useState(false);
-  const [boardState, setBoardState] = useState<string[][]>([]);
   const [boardWidth, setBoardWidth] = useState(width || 560);
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
 
-  // Remove unused imgErrors state since we're using SVG now
+  // Memoize board state parsing - prevents re-parsing on every render
+  const boardState = useMemo(() => parseFen(position), [position]);
 
   useEffect(() => {
     const updateBoardSize = () => {
       if (typeof document === "undefined") return;
       const container = document.querySelector(
-        ".chessboard-container"
+        ".chessboard-container",
       )?.parentElement;
       if (!container) return;
       const vw = Math.max(
         document.documentElement.clientWidth || 0,
-        window.innerWidth || 0
+        window.innerWidth || 0,
       );
       const containerWidth = container.clientWidth;
       const maxSize = 560;
@@ -73,51 +116,11 @@ const ChessboardComponent: React.FC<ChessboardComponentProps> = ({
 
   useEffect(() => {
     setMounted(true);
-    if (position === "start") {
-      setBoardState([
-        ["bR", "bN", "bB", "bQ", "bK", "bB", "bN", "bR"],
-        ["bP", "bP", "bP", "bP", "bP", "bP", "bP", "bP"],
-        ["", "", "", "", "", "", "", ""],
-        ["", "", "", "", "", "", "", ""],
-        ["", "", "", "", "", "", "", ""],
-        ["", "", "", "", "", "", "", ""],
-        ["wP", "wP", "wP", "wP", "wP", "wP", "wP", "wP"],
-        ["wR", "wN", "wB", "wQ", "wK", "wB", "wN", "wR"],
-      ]);
-    } else {
-      try {
-        const fenParts = position.split(" ");
-        const rows = fenParts[0].split("/");
-        const newBoard: string[][] = [];
+  }, []);
 
-        rows.forEach((row) => {
-          const newRow: string[] = [];
-          for (let i = 0; i < row.length; i++) {
-            const char = row[i];
-            if (isNaN(parseInt(char))) {
-              // It's a piece
-              const color = char === char.toUpperCase() ? "w" : "b";
-              newRow.push(`${color}${char.toUpperCase()}`);
-            } else {
-              // It's a number (empty squares)
-              for (let j = 0; j < parseInt(char); j++) {
-                newRow.push("");
-              }
-            }
-          }
-          newBoard.push(newRow);
-        });
-
-        setBoardState(newBoard);
-      } catch (e) {
-        console.error("Error parsing FEN:", e);
-        setBoardState(Array.from({ length: 8 }, () => Array(8).fill("")));
-      }
-    }
-  }, [position]);
-  const getPieceImage = (piece: string) => {
-    if (!piece) return null;
-    const pieceImages: Record<string, string> = {
+  // Memoize piece image mapping - prevents recreation on every render
+  const pieceImages: Record<string, string> = useMemo(
+    () => ({
       wP: WhitePawn,
       wR: WhiteRook,
       wN: WhiteKnight,
@@ -130,122 +133,144 @@ const ChessboardComponent: React.FC<ChessboardComponentProps> = ({
       bB: BlackBishop,
       bQ: BlackQueen,
       bK: BlackKing,
-    };
-    const isWhite = piece.startsWith("w");
-    return (
-      <div
-        className="piece-container group"
-        style={{
-          width: "100%",
-          height: "100%",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          position: "relative",
-          userSelect: "none",
-          cursor: "grab",
-          transform: `scale(${boardWidth < 400 ? 0.7 : 0.9})`,
-          transition: "all 0.2s ease",
-        }}
-      >
+    }),
+    [],
+  );
+
+  const getPieceImage = useCallback(
+    (piece: string) => {
+      if (!piece) return null;
+      const isWhite = piece.startsWith("w");
+      return (
         <div
+          className="piece-container group"
           style={{
-            width: boardWidth < 400 ? "80%" : "90%",
-            height: boardWidth < 400 ? "80%" : "90%",
+            width: "100%",
+            height: "100%",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
             position: "relative",
-            transform: "scale(1)",
-            transition: "transform 0.2s ease",
-            aspectRatio: "1/1", // Add this to ensure square aspect ratio
-            minHeight: "40px", // Add minimum height
+            userSelect: "none",
+            cursor: "grab",
+            transform: `scale(${boardWidth < 400 ? 0.7 : 0.9})`,
+            transition: "all 0.2s ease",
           }}
-          className="group-hover:transform group-hover:scale-110"
         >
-          <Image
-            src={pieceImages[piece]}
-            alt={piece}
-            fill
-            priority
-            sizes="(max-width: 400px) 80vw, 90vw"
+          <div
             style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "contain",
-              filter: isWhite
-                ? "drop-shadow(2px 2px 2px rgba(0,0,0,0.5))"
-                : "drop-shadow(2px 2px 2px rgba(0,0,0,0.3))",
-              transition: "filter 0.2s ease",
+              width: boardWidth < 400 ? "80%" : "90%",
+              height: boardWidth < 400 ? "80%" : "90%",
+              position: "relative",
+              transform: "scale(1)",
+              transition: "transform 0.2s ease",
+              aspectRatio: "1/1",
+              minHeight: "40px",
             }}
-            className="group-hover:filter group-hover:brightness-110"
-            onError={(e) => {
-              console.error(`Failed to load chess piece: ${piece}`);
-              const target = e.target as HTMLImageElement;
-              if (target) {
-                target.style.opacity = "0.5";
-              }
-            }}
-          />
+            className="group-hover:transform group-hover:scale-110"
+          >
+            <Image
+              src={pieceImages[piece]}
+              alt={piece}
+              fill
+              priority
+              sizes="(max-width: 400px) 80vw, 90vw"
+              style={{
+                width: "100%",
+                height: "100%",
+                objectFit: "contain",
+                filter: isWhite
+                  ? "drop-shadow(2px 2px 2px rgba(0,0,0,0.5))"
+                  : "drop-shadow(2px 2px 2px rgba(0,0,0,0.3))",
+                transition: "filter 0.2s ease",
+              }}
+              className="group-hover:filter group-hover:brightness-110"
+              onError={(e) => {
+                console.error(`Failed to load chess piece: ${piece}`);
+                const target = e.target as HTMLImageElement;
+                if (target) {
+                  target.style.opacity = "0.5";
+                }
+              }}
+            />
+          </div>
         </div>
-      </div>
-    );
-  };
-  const attemptMove = (
-    sourceRow: number,
-    sourceCol: number,
-    targetRow: number,
-    targetCol: number
-  ): void => {
-    const sourceSquare = `${String.fromCharCode(97 + sourceCol)}${
-      8 - sourceRow
-    }`;
-    const targetSquare = `${String.fromCharCode(97 + targetCol)}${
-      8 - targetRow
-    }`;
-    const moveSuccess = onDrop({ sourceSquare, targetSquare });
-    if (moveSuccess) {
-      setSelectedSquare(null);
-    }
-  };
-  const handleSquareClick = (row: number, col: number) => {
-    const clickedSquare = `${row},${col}`;
-    if (!selectedSquare && boardState[row][col]) {
-      setSelectedSquare(clickedSquare);
-      return;
-    }
-    if (selectedSquare === clickedSquare) {
-      setSelectedSquare(null);
-      return;
-    }
-    if (selectedSquare) {
-      const [sourceRow, sourceCol] = selectedSquare.split(",").map(Number);
-      attemptMove(sourceRow, sourceCol, row, col);
-    }
-  };
-  const handleDragStart = (e: React.DragEvent, row: number, col: number) => {
-    e.dataTransfer.setData("text/plain", `${row},${col}`);
-    const draggedElement = e.currentTarget as HTMLElement;
-    if (draggedElement) {
-      draggedElement.style.opacity = "0.6";
-    }
-  };
-  const handleDragEnd = (e: React.DragEvent) => {
+      );
+    },
+    [boardWidth, pieceImages],
+  );
+
+  const attemptMove = useCallback(
+    (
+      sourceRow: number,
+      sourceCol: number,
+      targetRow: number,
+      targetCol: number,
+    ): void => {
+      const sourceSquare = `${String.fromCharCode(97 + sourceCol)}${
+        8 - sourceRow
+      }`;
+      const targetSquare = `${String.fromCharCode(97 + targetCol)}${
+        8 - targetRow
+      }`;
+      const moveSuccess = onDrop({ sourceSquare, targetSquare });
+      if (moveSuccess) {
+        setSelectedSquare(null);
+      }
+    },
+    [onDrop],
+  );
+
+  const handleSquareClick = useCallback(
+    (row: number, col: number) => {
+      const clickedSquare = `${row},${col}`;
+      if (!selectedSquare && boardState[row][col]) {
+        setSelectedSquare(clickedSquare);
+        return;
+      }
+      if (selectedSquare === clickedSquare) {
+        setSelectedSquare(null);
+        return;
+      }
+      if (selectedSquare) {
+        const [sourceRow, sourceCol] = selectedSquare.split(",").map(Number);
+        attemptMove(sourceRow, sourceCol, row, col);
+      }
+    },
+    [selectedSquare, boardState, attemptMove],
+  );
+
+  const handleDragStart = useCallback(
+    (e: React.DragEvent, row: number, col: number) => {
+      e.dataTransfer.setData("text/plain", `${row},${col}`);
+      const draggedElement = e.currentTarget as HTMLElement;
+      if (draggedElement) {
+        draggedElement.style.opacity = "0.6";
+      }
+    },
+    [],
+  );
+
+  const handleDragEnd = useCallback((e: React.DragEvent) => {
     const draggedElement = e.currentTarget as HTMLElement;
     if (draggedElement) {
       draggedElement.style.opacity = "1";
     }
-  };
-  const handleDrop = (
-    e: React.DragEvent,
-    targetRow: number,
-    targetCol: number
-  ) => {
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent, targetRow: number, targetCol: number) => {
+      e.preventDefault();
+      const data = e.dataTransfer.getData("text/plain");
+      const [sourceRow, sourceCol] = data.split(",").map(Number);
+      attemptMove(sourceRow, sourceCol, targetRow, targetCol);
+    },
+    [attemptMove],
+  );
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    const data = e.dataTransfer.getData("text/plain");
-    const [sourceRow, sourceCol] = data.split(",").map(Number);
-    attemptMove(sourceRow, sourceCol, targetRow, targetCol);
-  };
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-  };
+  }, []);
   if (!mounted) {
     return (
       <div className="w-full h-full flex items-center justify-center bg-gray-800 rounded-md">
@@ -328,7 +353,7 @@ const ChessboardComponent: React.FC<ChessboardComponentProps> = ({
               )}
             </div>
           );
-        })
+        }),
       )}
     </div>
   );
