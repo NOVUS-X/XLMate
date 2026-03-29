@@ -2,8 +2,8 @@
 extern crate std;
 
 use super::*;
-use soroban_sdk::{Address, Bytes, Env, Map, Vec, testutils::Address as _};
 use soroban_sdk::token::{StellarAssetClient, TokenClient};
+use soroban_sdk::{Address, Bytes, Env, Map, Vec, testutils::Address as _};
 
 /// Helper: seed a completed game directly into contract storage, bypassing
 /// token transfers and auth checks.  Returns the game_id (always 1).
@@ -231,6 +231,9 @@ fn test_set_max_stake() {
     // Try to create game with 500
     let game_id_res = client.try_create_game(&player1, &500);
     assert!(game_id_res.is_ok());
+}
+
+#[test]
 fn test_payout_with_fee() {
     let env = Env::default();
     env.mock_all_auths();
@@ -295,7 +298,7 @@ fn test_configure_fees_permissioned() {
     let admin = Address::generate(&env);
     let treasury_addr = Address::generate(&env);
     let admin_key = Bytes::from_slice(&env, &[0u8; 32]);
-    
+
     env.mock_all_auths();
     client.initialize_puzzle_rewards(&admin, &admin_key, &0i128, &0u32, &treasury_addr);
 
@@ -305,7 +308,7 @@ fn test_configure_fees_permissioned() {
 
     // Verify update
     // (In a real test we'd check storage or run a payout, but here we just ensure it doesn't panic)
-    
+
     // Attempt update as someone else should panic
     let stranger = Address::generate(&env);
     let res = client.try_configure_fees(&stranger, &100, &new_treasury);
@@ -319,15 +322,17 @@ fn test_upgrade_admin_logic() {
     let client = GameContractClient::new(&env, &contract_id);
 
     let admin_key = Bytes::from_slice(&env, &[0u8; 32]);
-    
+
     // Manually set ADMIN_KEY to simulate old initialization (pre-CONTRACT_ADMIN)
     env.as_contract(&contract_id, || {
-        env.storage().instance().set(&symbol_short!("ADMIN_KEY"), &admin_key);
+        env.storage()
+            .instance()
+            .set(&symbol_short!("ADMIN_KEY"), &admin_key);
     });
 
     let admin = Address::generate(&env);
     env.mock_all_auths();
-    
+
     // upgrade_admin should allow setting the admin for the first time
     client.upgrade_admin(&admin);
 

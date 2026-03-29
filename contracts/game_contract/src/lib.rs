@@ -1,8 +1,8 @@
 #![no_std]
 use soroban_sdk::token::TokenClient;
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contract, contracttype, symbol_short, Address, Bytes, BytesN, Env,
-    Map, Symbol, Vec,
+    Address, Bytes, BytesN, Env, Map, Symbol, Vec, contract, contracterror, contractimpl,
+    contracttype, symbol_short,
 };
 
 // Game states
@@ -85,11 +85,6 @@ pub struct GameContract;
 
 #[contractimpl]
 impl GameContract {
-    pub fn initialize(env: Env, token_contract: Address) {
-        if env.storage().instance().has(&TOKEN_CONTRACT) {
-            panic!("Contract already initialized");
-        }
-        token_contract.require_auth();
     pub fn initialize_token(env: Env, admin: Address, token_contract: Address) {
         if env.storage().instance().has(&TOKEN_CONTRACT) {
             panic!("Contract already initialized");
@@ -111,8 +106,6 @@ impl GameContract {
         TokenClient::new(env, &Self::token_contract_address(env))
     }
 
-    // Create a new game with token-based escrow
-    pub fn create_game(env: Env, player1: Address, wager_amount: i128) -> u64 {
     // FIX 3: Changed `panic!("Insufficient funds")` to return
     // `Err(ContractError::InsufficientFunds)` for consistent API behavior
     // with `join_game` which already uses the Result-based error pattern.
@@ -133,7 +126,6 @@ impl GameContract {
         let contract_address = env.current_contract_address();
         let player_balance = token_client.balance(&player1);
         if player_balance < wager_amount {
-            panic!("Insufficient funds");
             return Err(ContractError::InsufficientFunds);
         }
 
@@ -553,24 +545,13 @@ impl GameContract {
         Ok(())
     }
 
-    // Helper function to process forfeit payout
-    fn process_forfeit_payout(
-        env: &Env,
-        game: &Game,
-        winner: &Address,
-    ) -> Result<(), ContractError> {
-        let token_client = Self::token_client(env);
-        let contract_address = env.current_contract_address();
-        token_client.transfer(&contract_address, winner, &(game.wager_amount * 2));
-
+    // Helper function to process win/forfeit payout
+    fn process_payout(env: &Env, game: &Game, winner: &Address) -> Result<(), ContractError> {
         let mut escrow: Map<Address, i128> = env
             .storage()
             .instance()
             .get(&ESCROW)
             .unwrap_or(Map::new(env));
-        let winner_escrow = escrow.get(winner.clone()).unwrap_or(0);
-        escrow.set(winner.clone(), winner_escrow + (game.wager_amount * 2));
-
 
         let fee_bips: u32 = env.storage().instance().get(&FEE_BIPS).unwrap_or(0);
         let treasury_addr_opt: Option<Address> = env.storage().instance().get(&TREASURY_ADDR);
@@ -609,7 +590,7 @@ impl GameContract {
         // Perform physical token transfers
         let token_client = Self::token_client(env);
         let contract_address = env.current_contract_address();
-        
+
         token_client.transfer(&contract_address, winner, &payout);
         if fee > 0 {
             if let Some(ref treasury_addr) = treasury_addr_opt {
@@ -620,67 +601,18 @@ impl GameContract {
         Ok(())
     }
 
+    // Helper function to process forfeit payout
+    fn process_forfeit_payout(
+        env: &Env,
+        game: &Game,
+        winner: &Address,
+    ) -> Result<(), ContractError> {
+        Self::process_payout(env, game, winner)
+    }
+
     // Helper function to process win payout
     fn process_win_payout(env: &Env, game: &Game, winner: &Address) -> Result<(), ContractError> {
-        let token_client = Self::token_client(env);
-        let contract_address = env.current_contract_address();
-        token_client.transfer(&contract_address, winner, &(game.wager_amount * 2));
-
-        let mut escrow: Map<Address, i128> = env
-            .storage()
-            .instance()
-            .get(&ESCROW)
-            .unwrap_or(Map::new(env));
-        let winner_escrow = escrow.get(winner.clone()).unwrap_or(0);
-        escrow.set(winner.clone(), winner_escrow + (game.wager_amount * 2));
-
-
-        let fee_bips: u32 = env.storage().instance().get(&FEE_BIPS).unwrap_or(0);
-        let treasury_addr_opt: Option<Address> = env.storage().instance().get(&TREASURY_ADDR);
-
-        let total_pool = game.wager_amount * 2;
-
-        let (payout, fee) = if treasury_addr_opt.is_some() {
-            let fee = (total_pool * fee_bips as i128) / 1000;
-            (total_pool - fee, fee)
-        } else {
-            (total_pool, 0)
-        };
-
-        // Subtract wagers from both players first (clean state)
-        let player1_escrow = escrow.get(game.player1.clone()).unwrap_or(0);
-        escrow.set(game.player1.clone(), player1_escrow - game.wager_amount);
-
-        let player2 = game.player2.as_ref().ok_or(ContractError::GameFull)?;
-        let player2_escrow = escrow.get(player2.clone()).unwrap_or(0);
-        escrow.set(player2.clone(), player2_escrow - game.wager_amount);
-
-        // Add payout to winner
-        let winner_escrow = escrow.get(winner.clone()).unwrap_or(0);
-        escrow.set(winner.clone(), winner_escrow + payout);
-
-        // Add fee to treasury if it exists
-        if fee > 0 {
-            if let Some(ref treasury_addr) = treasury_addr_opt {
-                let treasury_escrow = escrow.get(treasury_addr.clone()).unwrap_or(0);
-                escrow.set(treasury_addr.clone(), treasury_escrow + fee);
-            }
-        }
-
-        env.storage().instance().set(&ESCROW, &escrow);
-
-        // Perform physical token transfers
-        let token_client = Self::token_client(env);
-        let contract_address = env.current_contract_address();
-        
-        token_client.transfer(&contract_address, winner, &payout);
-        if fee > 0 {
-            if let Some(ref treasury_addr) = treasury_addr_opt {
-                token_client.transfer(&contract_address, treasury_addr, &fee);
-            }
-        }
-
-        Ok(())
+        Self::process_payout(env, game, winner)
     }
 
     // ============================================================
@@ -725,6 +657,10 @@ impl GameContract {
         env.storage().instance().set(&CONTRACT_ADMIN, &admin);
         env.storage().instance().set(&ADMIN_KEY, &admin_public_key);
         env.storage().instance().set(&TREASURY, &treasury_amount);
+        env.storage().instance().set(&FEE_BIPS, &fee_bips);
+        env.storage()
+            .instance()
+            .set(&TREASURY_ADDR, &treasury_address);
         env.storage().instance().set(&MAX_STAKE, &1000i128); // Default 1000 XLM
     }
 
@@ -737,8 +673,6 @@ impl GameContract {
         // In a real scenario, you'd check auth against the admin key.
         // For now, we'll just allow it to be set (or add a simple auth check if requested).
         env.storage().instance().set(&MAX_STAKE, &new_limit);
-        env.storage().instance().set(&FEE_BIPS, &fee_bips);
-        env.storage().instance().set(&TREASURY_ADDR, &treasury_address);
     }
 
     /// Update fee configuration. Only callable by the contract admin.
@@ -759,7 +693,9 @@ impl GameContract {
         }
 
         env.storage().instance().set(&FEE_BIPS, &fee_bips);
-        env.storage().instance().set(&TREASURY_ADDR, &treasury_address);
+        env.storage()
+            .instance()
+            .set(&TREASURY_ADDR, &treasury_address);
     }
 
     /// Support legacy deployments by allowing the first admin to be set if missing.
@@ -899,52 +835,6 @@ impl GameContract {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::testutils::Address as _;
-    use soroban_sdk::token::{StellarAssetClient, TokenClient};
-    use soroban_sdk::{Address, Env};
-
-    #[test]
-    fn test_usdc_staking_workflow() {
-        let env = Env::default();
-        env.mock_all_auths();
-
-        let issuer = Address::generate(&env);
-        let player1 = Address::generate(&env);
-        let player2 = Address::generate(&env);
-
-        let stellar_token = env.register_stellar_asset_contract_v2(issuer.clone());
-        let token_address = stellar_token.address();
-        let token_client = TokenClient::new(&env, &token_address);
-        let stellar_asset_client = StellarAssetClient::new(&env, &token_address);
-
-        // Mint both player balances
-        let fund_amount: i128 = 1_000;
-        stellar_asset_client.mint(&player1, &fund_amount);
-        stellar_asset_client.mint(&player2, &fund_amount);
-
-        // Deploy game contract and initialize with token contract
-        let contract_id = env.register_contract(None, GameContract);
-        let client = GameContractClient::new(&env, &contract_id);
-        client.initialize(&token_address);
-
-        // Player 1 creates game with USDC staking
-        let initial_wager: i128 = 100;
-        let game_id = client.create_game(&player1, &initial_wager);
-
-        // Player 2 joins game
-        client.join_game(&game_id, &player2);
-
-        // Player 1 forfeits, winner is player 2; contract should pay out 200
-        client.forfeit(&game_id, &player1);
-
-        let final_player2_balance = token_client.balance(&player2);
-        assert_eq!(final_player2_balance, 1_100);
-    }
-}
-    use soroban_sdk::{
-        testutils::Address as _,
-        Bytes, BytesN, Env,
-    };
     use ed25519_dalek::{Signer, SigningKey};
     use rand::rngs::OsRng;
     use soroban_sdk::testutils::Address as _;
@@ -1111,5 +1001,4 @@ mod tests {
     }
 }
 
-#[cfg(test)]
 mod test;
