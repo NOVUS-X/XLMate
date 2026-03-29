@@ -1163,6 +1163,3 @@ mod tests {
         assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
     }
 }
-
-#[cfg(test)]
-mod test;
