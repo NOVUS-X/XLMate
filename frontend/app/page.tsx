@@ -17,8 +17,6 @@ const AiPersonalityModal = dynamic(
     })),
   { ssr: false },
 );
-import { FaUser } from "react-icons/fa";
-import { RiAliensFill } from "react-icons/ri";
 import { useChessSocket } from "@/hook/useChessSocket";
 import { useMatchmaking } from "@/hook/useMatchmaking";
 import { useRouter } from "next/navigation";
@@ -67,15 +65,6 @@ export default function Home() {
     },
     [gameId, socketSendMove, matchmakingSendMove],
   );
-
-    fetchOnlinePlayers();
-    const intervalId = window.setInterval(fetchOnlinePlayers, 20000);
-
-    return () => {
-      isMounted = false;
-      clearInterval(intervalId);
-    };
-  }, [PLAYER_COUNT_ENDPOINT]);
 
   useEffect(() => {
     if (matchmakingStatus === "match_found" && gameId) {
