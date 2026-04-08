@@ -13,18 +13,16 @@ pub mod test_service {
 
         // Check if username or email already exists
         if is_username_taken_test(&db, &new_player.username).await {
-            return Err(ApiError::ValidationError(
-                vec!["Username already exists".to_string()]
-            ));
+            return Err(ApiError::BadRequest("Username already exists".to_string()));
         }
 
         if is_email_taken_test(&db, &new_player.email).await {
-            return Err(ApiError::ValidationError(
-                vec!["Email already exists".to_string()]
-            ));
+            return Err(ApiError::BadRequest("Email already exists".to_string()));
         }
 
-        let hashed_password = password::hash_password(&new_player.password).await;
+        // Remove .await - hash_password is synchronous
+        let hashed_password = password::hash_password(&new_player.password)
+            .map_err(|e| ApiError::PasswordHashError(e))?;
 
         let player = player::ActiveModel {
             id: Set(Uuid::new_v4()),
@@ -37,9 +35,8 @@ pub mod test_service {
             ..Default::default()
         };
 
-        let result = player.insert(&db).await.map_err(|e| {
-            ApiError::DatabaseError(format!("Failed to create player: {}", e))
-        })?;
+        let result = player.insert(&db).await
+            .map_err(|e| ApiError::DatabaseError(e))?;
 
         Ok(result)
     }
