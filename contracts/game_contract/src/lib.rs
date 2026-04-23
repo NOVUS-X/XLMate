@@ -31,6 +31,7 @@ pub struct Game {
     pub moves: Vec<ChessMove>,
     pub created_at: u64,
     pub winner: Option<Address>,
+    pub last_move_at: u64, // Ledger sequence of last move
 }
 
 #[contracttype]
@@ -84,11 +85,9 @@ const FEE_BIPS: Symbol = symbol_short!("FEE_BIPS"); // u32  (0–1000, i.e. 0–
 const TREASURY_ADDR: Symbol = symbol_short!("TR_ADDR"); // Address
 const CONTRACT_ADMIN: Symbol = symbol_short!("CT_ADMIN"); // Address
 
-// Dispute resolution system
-const DISPUTE_FEE: Symbol = symbol_short!("D_FEE"); // i128 - fee to file a dispute
-const DISPUTES: Symbol = symbol_short!("DISPUTES"); // Map<u64, Dispute>
-const DISPUTE_COUNTER: Symbol = symbol_short!("D_CNT"); // u64
-const ARBITRATOR: Symbol = symbol_short!("ARBIT"); // Address - dispute arbitrator
+// Game timeout mechanism
+const TIMEOUT_DURATION: Symbol = symbol_short!("T_OUT"); // u64 - ledger sequences before timeout
+const LAST_MOVE_TIME: Symbol = symbol_short!("L_MOVE"); // Map<u64, u64> - game_id => last_move_ledger
 
 // ────────────────────────────────────────────────────────────────────────────
 // Errors
@@ -121,6 +120,10 @@ pub enum ContractError {
     NotArbitrator = 20,
     /// Insufficient dispute fee
     InsufficientDisputeFee = 21,
+    /// Game has not timed out yet
+    TimeoutNotReached = 16,
+    /// Timeout feature not configured
+    TimeoutNotConfigured = 17,
 }
 
 #[contract]
@@ -186,6 +189,7 @@ impl GameContract {
             moves: Vec::new(&env),
             created_at: env.ledger().sequence() as u64,
             winner: None,
+            last_move_at: env.ledger().sequence() as u64,
         };
 
         let mut games: Map<u64, Game> = env
@@ -245,6 +249,7 @@ impl GameContract {
         game.player2 = Some(player2.clone());
         game.state = GameState::InProgress;
         game.current_turn = 1;
+        game.last_move_at = env.ledger().sequence() as u64;
 
         let mut escrow: Map<Address, i128> = env
             .storage()
@@ -302,6 +307,7 @@ impl GameContract {
         };
         game.moves.push_back(chess_move.into());
         game.current_turn = if game.current_turn == 1 { 2 } else { 1 };
+        game.last_move_at = env.ledger().sequence() as u64;
 
         games.set(game_id, game);
         env.storage().instance().set(&GAMES, &games);
@@ -790,6 +796,11 @@ impl GameContract {
     /// * `arbitrator` - Address of the dispute arbitrator
     /// * `dispute_fee` - Fee required to file a dispute (in tokens)
     pub fn configure_dispute_system(env: Env, admin: Address, arbitrator: Address, dispute_fee: i128) {
+    // ── Game Timeout Mechanism ─────────────────────────────────────────────
+
+    /// Configure timeout duration (in ledger sequences)
+    /// Default Stellar ledger is ~5 seconds, so 8640 = ~12 hours
+    pub fn configure_timeout(env: Env, admin: Address, duration: u64) {
         let current_admin: Address = env
             .storage()
             .instance()
@@ -822,6 +833,18 @@ impl GameContract {
 
         // Verify game exists
         let games: Map<u64, Game> = env
+        if duration == 0 {
+            panic!("Timeout duration must be greater than 0");
+        }
+
+        env.storage().instance().set(&TIMEOUT_DURATION, &duration);
+    }
+
+    /// Claim timeout win when opponent hasn't moved within timeout period
+    /// The current player can claim victory if the opponent hasn't made a move
+    /// within the configured timeout duration
+    pub fn claim_timeout_win(env: Env, game_id: u64, claimant: Address) -> Result<(), ContractError> {
+        let mut games: Map<u64, Game> = env
             .storage()
             .instance()
             .get(&GAMES)
@@ -987,6 +1010,47 @@ impl GameContract {
         env.events().publish(
             (symbol_short!("dispute"), symbol_short!("solved")),
             (dispute_id, winner.map(|w| w)),
+        let mut game = games.get(game_id).ok_or(ContractError::GameNotFound)?;
+
+        // Game must be in progress
+        if game.state != GameState::InProgress {
+            return Err(ContractError::GameNotInProgress);
+        }
+
+        // Claimant must be a player
+        if claimant != game.player1 && Some(claimant.clone()) != game.player2 {
+            return Err(ContractError::NotPlayer);
+        }
+
+        // Get timeout configuration
+        let timeout_duration: u64 = env
+            .storage()
+            .instance()
+            .get(&TIMEOUT_DURATION)
+            .ok_or(ContractError::TimeoutNotConfigured)?;
+
+        // Check if timeout has been reached
+        let current_ledger = env.ledger().sequence() as u64;
+        let elapsed = current_ledger - game.last_move_at;
+
+        if elapsed < timeout_duration {
+            return Err(ContractError::TimeoutNotReached);
+        }
+
+        // Determine winner (the claimant, since opponent timed out)
+        game.state = GameState::Completed;
+        game.winner = Some(claimant.clone());
+
+        // Process payout to winner
+        Self::process_payout(&env, &game, &claimant)?;
+
+        games.set(game_id, game);
+        env.storage().instance().set(&GAMES, &games);
+
+        // Emit timeout event
+        env.events().publish(
+            (symbol_short!("timeout"), game_id),
+            (claimant, timeout_duration),
         );
 
         Ok(())
@@ -1063,6 +1127,31 @@ impl GameContract {
         disputes
             .get(dispute_id)
             .ok_or(ContractError::DisputeNotFound)
+    /// Query remaining time before timeout (in ledger sequences)
+    /// Returns None if timeout not configured or game not in progress
+    pub fn get_timeout_remaining(env: Env, game_id: u64) -> Option<u64> {
+        let games: Map<u64, Game> = env
+            .storage()
+            .instance()
+            .get(&GAMES)
+            .ok_or(ContractError::GameNotFound)
+            .ok()?;
+
+        let game = games.get(game_id).ok_or(ContractError::GameNotFound).ok()?;
+
+        if game.state != GameState::InProgress {
+            return None;
+        }
+
+        let timeout_duration: u64 = env.storage().instance().get(&TIMEOUT_DURATION)?;
+        let current_ledger = env.ledger().sequence() as u64;
+        let elapsed = current_ledger - game.last_move_at;
+
+        if elapsed >= timeout_duration {
+            return Some(0);
+        }
+
+        Some(timeout_duration - elapsed)
     }
 }
 
@@ -1076,6 +1165,7 @@ mod tests {
     use ed25519_dalek::{Signer, SigningKey};
     use rand::rngs::OsRng;
     use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::testutils::Ledger as _;
     use soroban_sdk::token::{StellarAssetClient, TokenClient};
     use soroban_sdk::{Address, Bytes, BytesN, Env};
 
@@ -1340,6 +1430,30 @@ mod tests {
 
     #[test]
     fn test_file_dispute_success() {
+    // ── Game Timeout Tests ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_configure_timeout() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, GameContract);
+        let client = GameContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let admin_key = Bytes::from_slice(&env, &[0u8; 32]);
+        let treasury_addr = Address::generate(&env);
+
+        client.initialize_puzzle_rewards(&admin, &admin_key, &0i128, &0u32, &treasury_addr);
+
+        // Configure timeout to 1000 ledger sequences
+        client.configure_timeout(&admin, &1000u64);
+
+        // Verify it doesn't panic (timeout configured successfully)
+    }
+
+    #[test]
+    fn test_claim_timeout_win_success() {
         let env = Env::default();
         env.mock_all_auths();
 
@@ -1364,6 +1478,9 @@ mod tests {
         client.initialize_token(&admin, &token_address);
         client.initialize_puzzle_rewards(&admin, &Bytes::from_slice(&env, &[0u8; 32]), &0i128, &0u32, &treasury_addr);
         client.configure_dispute_system(&admin, &arbitrator, &50i128);
+
+        // Set timeout to 100 ledgers and raise stake limit
+        client.configure_timeout(&admin, &100u64);
         client.set_max_stake(&1_000i128);
 
         let wager: i128 = 100;
@@ -1386,6 +1503,27 @@ mod tests {
 
     #[test]
     fn test_resolve_dispute_winner_takes_all() {
+        // Manually set last_move_at to simulate time passing
+        env.as_contract(&contract_id, || {
+            let mut games: Map<u64, Game> = env.storage().instance().get(&GAMES).unwrap();
+            let mut game = games.get(game_id).unwrap();
+            game.last_move_at = 0; // Set to ledger 0
+            games.set(game_id, game);
+            env.storage().instance().set(&GAMES, &games);
+        });
+
+        // Advance ledger to exceed timeout
+        env.ledger().set_sequence_number(101);
+
+        // Player1 claims timeout win
+        client.claim_timeout_win(&game_id, &player1);
+
+        // Verify player1 received the payout (200 - no fee)
+        assert_eq!(token_client.balance(&player1), 1_100);
+    }
+
+    #[test]
+    fn test_claim_timeout_win_not_reached() {
         let env = Env::default();
         env.mock_all_auths();
 
@@ -1410,6 +1548,7 @@ mod tests {
         client.initialize_token(&admin, &token_address);
         client.initialize_puzzle_rewards(&admin, &Bytes::from_slice(&env, &[0u8; 32]), &0i128, &0u32, &treasury_addr);
         client.configure_dispute_system(&admin, &arbitrator, &50i128);
+        client.configure_timeout(&admin, &1000u64);
         client.set_max_stake(&1_000i128);
 
         let wager: i128 = 100;
@@ -1434,6 +1573,13 @@ mod tests {
 
     #[test]
     fn test_reject_dispute_refund_fee() {
+        // Try to claim timeout before it's reached
+        let result = client.try_claim_timeout_win(&game_id, &player1);
+        assert_eq!(result, Err(Ok(ContractError::TimeoutNotReached)));
+    }
+
+    #[test]
+    fn test_get_timeout_remaining() {
         let env = Env::default();
         env.mock_all_auths();
 
@@ -1458,6 +1604,7 @@ mod tests {
         client.initialize_token(&admin, &token_address);
         client.initialize_puzzle_rewards(&admin, &Bytes::from_slice(&env, &[0u8; 32]), &0i128, &0u32, &treasury_addr);
         client.configure_dispute_system(&admin, &arbitrator, &50i128);
+        client.configure_timeout(&admin, &1000u64);
         client.set_max_stake(&1_000i128);
 
         let wager: i128 = 100;
@@ -1478,5 +1625,18 @@ mod tests {
         // Verify dispute is rejected
         let dispute = client.get_dispute(&dispute_id);
         assert_eq!(dispute.status, DisputeStatus::Rejected);
+        // Should have full timeout remaining
+        let remaining = client.get_timeout_remaining(&game_id);
+        assert_eq!(remaining, Some(1000));
+
+        // Advance ledger by 500 (from 1 to 501 = 500 elapsed)
+        env.ledger().set_sequence_number(501);
+        let remaining = client.get_timeout_remaining(&game_id);
+        assert_eq!(remaining, Some(499)); // 1000 - 501 = 499
+
+        // Advance past timeout
+        env.ledger().set_sequence_number(1001);
+        let remaining = client.get_timeout_remaining(&game_id);
+        assert_eq!(remaining, Some(0));
     }
 }

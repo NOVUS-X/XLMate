@@ -30,6 +30,7 @@ fn seed_completed_game(
             moves: Vec::new(env),
             created_at: 0,
             winner: None,
+            last_move_at: 0,
         };
         let mut games: Map<u64, Game> = Map::new(env);
         games.set(game_id, game);
