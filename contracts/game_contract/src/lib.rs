@@ -172,6 +172,76 @@ impl GameContract {
         TokenClient::new(env, &Self::token_contract_address(env))
     }
 
+    /// Gas-optimized tournament payout — single pass, no redundant map reads.
+    /// Validates percentages and distributes atomically.
+    pub fn payout_tournament_optimized(
+        env: Env,
+        game_id: u64,
+        winners: Vec<Address>,
+        percentages: Vec<u32>,
+    ) -> Result<(), ContractError> {
+        let mut games: Map<u64, Game> = env
+            .storage()
+            .instance()
+            .get(&GAMES)
+            .ok_or(ContractError::GameNotFound)?;
+
+        let game = games.get(game_id).ok_or(ContractError::GameNotFound)?;
+
+        if game.state != GameState::Completed {
+            return Err(ContractError::GameNotInProgress);
+        }
+
+        game.player1.require_auth();
+
+        if winners.len() != percentages.len() {
+            return Err(ContractError::MismatchedLengths);
+        }
+
+        let total_pool = match &game.player2 {
+            Some(_) => game.wager_amount * 2,
+            None => game.wager_amount,
+        };
+
+        // Single-pass: validate + compute amounts together
+        let mut total_pct: u32 = 0;
+        let mut payouts: Vec<(Address, i128)> = Vec::new(&env);
+        let mut distributed: i128 = 0;
+
+        for i in 0..winners.len() {
+            let pct = percentages.get(i).unwrap();
+            total_pct += pct;
+            if total_pct > 100 {
+                return Err(ContractError::InvalidPercentage);
+            }
+            let amount = (total_pool * pct as i128) / 100;
+            distributed += amount;
+            payouts.push_back((winners.get(i).unwrap(), amount));
+        }
+
+        if total_pct != 100 {
+            return Err(ContractError::InvalidPercentage);
+        }
+
+        // Dust to first winner
+        let remainder = total_pool - distributed;
+
+        let token_client = Self::token_client(&env);
+        let contract_address = env.current_contract_address();
+
+        for (idx, (winner, mut amount)) in payouts.iter().enumerate() {
+            if idx == 0 {
+                amount += remainder;
+            }
+            token_client.transfer(&contract_address, &winner, &amount);
+        }
+
+        games.set(game_id, game);
+        env.storage().instance().set(&GAMES, &games);
+
+        Ok(())
+    }
+
     // ── Game lifecycle ────────────────────────────────────────────────────────
 
     pub fn create_game(
@@ -2006,5 +2076,59 @@ mod tests {
         // Verify dispute is rejected
         let dispute = client.get_dispute(&dispute_id);
         assert_eq!(dispute.status, DisputeStatus::Rejected);
+    }
+
+    #[test]
+    fn test_payout_tournament_optimized_splits_correctly() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let issuer = Address::generate(&env);
+        let stellar_token = env.register_stellar_asset_contract_v2(issuer.clone());
+        let token_address = stellar_token.address();
+        let token_client = TokenClient::new(&env, &token_address);
+        let stellar_asset_client = StellarAssetClient::new(&env, &token_address);
+
+        let admin = Address::generate(&env);
+        let player1 = Address::generate(&env);
+        let player2 = Address::generate(&env);
+        let treasury_addr = Address::generate(&env);
+
+        stellar_asset_client.mint(&player1, &1_000i128);
+        stellar_asset_client.mint(&player2, &1_000i128);
+
+        let contract_id = env.register_contract(None, GameContract);
+        let client = GameContractClient::new(&env, &contract_id);
+
+        client.initialize_token(&admin, &token_address);
+        client.initialize_puzzle_rewards(
+            &admin,
+            &Bytes::from_slice(&env, &[0u8; 32]),
+            &0i128,
+            &0u32,
+            &treasury_addr,
+        );
+        client.set_max_stake(&1_000i128);
+
+        let wager: i128 = 500;
+        let game_id = client.create_game(&player1, &wager);
+        client.join_game(&game_id, &player2);
+
+        // Manually complete the game (reuse forfeit → sets Forfeited not Completed, so set directly)
+        env.as_contract(&contract_id, || {
+            let mut games: Map<u64, Game> = env.storage().instance().get(&GAMES).unwrap();
+            let mut game = games.get(game_id).unwrap();
+            game.state = GameState::Completed;
+            games.set(game_id, game);
+            env.storage().instance().set(&GAMES, &games);
+        });
+
+        let winners = Vec::from_array(&env, [player1.clone(), player2.clone()]);
+        let percentages = Vec::from_array(&env, [60u32, 40u32]);
+        client.payout_tournament_optimized(&game_id, &winners, &percentages);
+
+        // pool = 1000: player1 gets 600, player2 gets 400
+        assert_eq!(token_client.balance(&player1), 1100); // started 1000, put in 500, gets 600
+        assert_eq!(token_client.balance(&player2), 900); // started 1000, put in 500, gets 400
     }
 }

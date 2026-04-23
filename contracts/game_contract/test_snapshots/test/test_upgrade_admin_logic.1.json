@@ -1,9 +1,10 @@
 {
   "generators": {
-    "address": 4,
+    "address": 3,
     "nonce": 0
   },
   "auth": [
+    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
@@ -11,25 +12,10 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "initialize_puzzle_rewards",
+              "function_name": "upgrade_admin",
               "args": [
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                },
-                {
-                  "bytes": "051a745ea7161d1b125a0a64383b4c17498b70e3b01cd535810895181492237b"
-                },
-                {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 10000
-                  }
-                },
-                {
-                  "u32": 0
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 }
               ]
             }
@@ -78,7 +64,7 @@
                           "symbol": "ADMIN_KEY"
                         },
                         "val": {
-                          "bytes": "051a745ea7161d1b125a0a64383b4c17498b70e3b01cd535810895181492237b"
+                          "bytes": "0000000000000000000000000000000000000000000000000000000000000000"
                         }
                       },
                       {
@@ -87,44 +73,6 @@
                         },
                         "val": {
                           "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                        }
-                      },
-                      {
-                        "key": {
-                          "symbol": "FEE_BIPS"
-                        },
-                        "val": {
-                          "u32": 0
-                        }
-                      },
-                      {
-                        "key": {
-                          "symbol": "MAXSTAKE"
-                        },
-                        "val": {
-                          "i128": {
-                            "hi": 0,
-                            "lo": 1000
-                          }
-                        }
-                      },
-                      {
-                        "key": {
-                          "symbol": "TREASURY"
-                        },
-                        "val": {
-                          "i128": {
-                            "hi": 0,
-                            "lo": 10000
-                          }
-                        }
-                      },
-                      {
-                        "key": {
-                          "symbol": "TR_ADDR"
-                        },
-                        "val": {
-                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                         }
                       }
                     ]
@@ -209,30 +157,11 @@
                 "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
               },
               {
-                "symbol": "initialize_puzzle_rewards"
+                "symbol": "upgrade_admin"
               }
             ],
             "data": {
-              "vec": [
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                },
-                {
-                  "bytes": "051a745ea7161d1b125a0a64383b4c17498b70e3b01cd535810895181492237b"
-                },
-                {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 10000
-                  }
-                },
-                {
-                  "u32": 0
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                }
-              ]
+              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
             }
           }
         }
@@ -251,7 +180,7 @@
                 "symbol": "fn_return"
               },
               {
-                "symbol": "initialize_puzzle_rewards"
+                "symbol": "upgrade_admin"
               }
             ],
             "data": "void"
@@ -275,27 +204,11 @@
                 "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
               },
               {
-                "symbol": "claim_puzzle_reward"
+                "symbol": "upgrade_admin"
               }
             ],
             "data": {
-              "vec": [
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                },
-                {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 500
-                  }
-                },
-                {
-                  "u64": 1
-                },
-                {
-                  "bytes": "b59b1de552889b76e9ba1cd4ef2789e05705d32dca4b0cfc7c9ab63a18a256b83da5709ec7a35999a688e76c1bb0c4f3892bc49f2d6efc02908c0ae955de720e"
-                }
-              ]
+              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
             }
           }
         }
@@ -311,16 +224,18 @@
           "v0": {
             "topics": [
               {
-                "symbol": "error"
-              },
-              {
-                "error": {
-                  "crypto": "invalid_input"
-                }
+                "symbol": "log"
               }
             ],
             "data": {
-              "string": "failed ED25519 verification"
+              "vec": [
+                {
+                  "string": "caught panic 'Admin already set' from contract function 'Symbol(obj#23)'"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                }
+              ]
             }
           }
         }
@@ -340,32 +255,7 @@
               },
               {
                 "error": {
-                  "crypto": "invalid_input"
-                }
-              }
-            ],
-            "data": {
-              "string": "escalating error to panic"
-            }
-          }
-        }
-      },
-      "failed_call": true
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
-        "type_": "diagnostic",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "error"
-              },
-              {
-                "error": {
-                  "crypto": "invalid_input"
+                  "wasm_vm": "invalid_action"
                 }
               }
             ],
@@ -390,63 +280,26 @@
               },
               {
                 "error": {
-                  "crypto": "invalid_input"
+                  "wasm_vm": "invalid_action"
                 }
               }
             ],
             "data": {
               "vec": [
                 {
-                  "string": "contract call failed"
+                  "string": "contract try_call failed"
                 },
                 {
-                  "symbol": "claim_puzzle_reward"
+                  "symbol": "upgrade_admin"
                 },
                 {
                   "vec": [
                     {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                    },
-                    {
-                      "i128": {
-                        "hi": 0,
-                        "lo": 500
-                      }
-                    },
-                    {
-                      "u64": 1
-                    },
-                    {
-                      "bytes": "b59b1de552889b76e9ba1cd4ef2789e05705d32dca4b0cfc7c9ab63a18a256b83da5709ec7a35999a688e76c1bb0c4f3892bc49f2d6efc02908c0ae955de720e"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                     }
                   ]
                 }
               ]
-            }
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": null,
-        "type_": "diagnostic",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "error"
-              },
-              {
-                "error": {
-                  "crypto": "invalid_input"
-                }
-              }
-            ],
-            "data": {
-              "string": "escalating error to panic"
             }
           }
         }
