@@ -32,6 +32,7 @@ pub struct Game {
     pub created_at: u64,
     pub winner: Option<Address>,
     pub proof_of_game: BytesN<32>,
+    pub last_move_at: u64, // Ledger sequence of last move
 }
 
 #[contracttype]
@@ -40,6 +41,40 @@ pub struct ChessMove {
     pub player: Address,
     pub move_data: Vec<u32>,
     pub timestamp: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DisputeStatus {
+    Pending,
+    Resolved,
+    Rejected,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct Dispute {
+    pub id: u64,
+    pub game_id: u64,
+    pub filer: Address,   // Player who filed the dispute
+    pub against: Address, // Opponent
+    pub reason: Bytes,    // Dispute reason (encoded)
+    pub status: DisputeStatus,
+    pub filed_at: u64,             // Ledger sequence
+    pub resolution: Option<Bytes>, // Arbitrator's resolution
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct PlayerRating {
+    pub address: Address,
+    pub rating: i32, // Current ELO rating
+    pub games_played: u32,
+    pub wins: u32,
+    pub losses: u32,
+    pub draws: u32,
+    pub highest_rating: i32,
+    pub last_updated: u64, // Ledger sequence
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -64,6 +99,15 @@ const FEE_BIPS: Symbol = symbol_short!("FEE_BIPS"); // u32  (0–1000, i.e. 0–
 const TREASURY_ADDR: Symbol = symbol_short!("TR_ADDR"); // Address
 const CONTRACT_ADMIN: Symbol = symbol_short!("CT_ADMIN"); // Address
 
+// Dispute resolution system
+const DISPUTE_FEE: Symbol = symbol_short!("D_FEE"); // i128 - fee to file a dispute
+const DISPUTES: Symbol = symbol_short!("DISPUTES"); // Map<u64, Dispute>
+const DISPUTE_COUNTER: Symbol = symbol_short!("D_CNT"); // u64
+const ARBITRATOR: Symbol = symbol_short!("ARBIT"); // Address - dispute arbitrator
+
+// Game timeout mechanism
+const TIMEOUT_DURATION: Symbol = symbol_short!("T_OUT"); // u64 - ledger sequences before timeout
+
 // ────────────────────────────────────────────────────────────────────────────
 // Errors
 // ────────────────────────────────────────────────────────────────────────────
@@ -87,6 +131,20 @@ pub enum ContractError {
     /// Invalid or already-used backend signature  (#199)
     Unauthorized = 14,
     StakeLimitExceeded = 15,
+    /// Game has not timed out yet
+    TimeoutNotReached = 16,
+    /// Timeout feature not configured
+    TimeoutNotConfigured = 17,
+    /// Game is not in a disputable state
+    NotDisputable = 18,
+    /// Dispute not found
+    DisputeNotFound = 19,
+    /// Only arbitrator can resolve disputes
+    NotArbitrator = 20,
+    /// Insufficient dispute fee
+    InsufficientDisputeFee = 21,
+    /// Only the waiting player can claim a timeout win
+    InvalidTimeoutClaimant = 22,
 }
 
 #[contract]
@@ -111,7 +169,7 @@ impl GameContract {
             .expect("Token contract is not initialized")
     }
 
-    fn token_client(env: &Env) -> TokenClient {
+    fn token_client(env: &Env) -> TokenClient<'_> {
         TokenClient::new(env, &Self::token_contract_address(env))
     }
 
@@ -153,6 +211,7 @@ impl GameContract {
             created_at: env.ledger().sequence() as u64,
             winner: None,
             proof_of_game: BytesN::from_array(&env, &[0; 32]),
+            last_move_at: env.ledger().sequence() as u64,
         };
 
         let mut games: Map<u64, Game> = env
@@ -212,6 +271,7 @@ impl GameContract {
         game.player2 = Some(player2.clone());
         game.state = GameState::InProgress;
         game.current_turn = 1;
+        game.last_move_at = env.ledger().sequence() as u64;
 
         let mut escrow: Map<Address, i128> = env
             .storage()
@@ -245,6 +305,8 @@ impl GameContract {
         if game.state != GameState::InProgress {
             return Err(ContractError::GameNotInProgress);
         }
+
+        player.require_auth();
 
         let player_num = if player == game.player1 {
             1
@@ -281,6 +343,7 @@ impl GameContract {
 
         game.moves.push_back(chess_move);
         game.current_turn = if game.current_turn == 1 { 2 } else { 1 };
+        game.last_move_at = env.ledger().sequence() as u64;
 
         games.set(game_id, game);
         env.storage().instance().set(&GAMES, &games);
@@ -303,6 +366,8 @@ impl GameContract {
         if player != game.player1 && Some(player.clone()) != game.player2 {
             return Err(ContractError::NotPlayer);
         }
+
+        player.require_auth();
 
         game.state = GameState::Drawn;
         Self::process_draw_payout(&env, &game)?;
@@ -328,6 +393,8 @@ impl GameContract {
         if player != game.player1 && Some(player.clone()) != game.player2 {
             return Err(ContractError::NotPlayer);
         }
+
+        player.require_auth();
 
         let winner = if player == game.player1 {
             game.player2
@@ -364,6 +431,8 @@ impl GameContract {
             return Err(ContractError::NotPlayer);
         }
 
+        winner.require_auth();
+
         Self::process_payout(&env, &game, &winner)?;
 
         games.set(game_id, game);
@@ -397,12 +466,6 @@ impl GameContract {
         }
 
         let mut total_percentage: u32 = 0;
-        for i in 0..percentages.len() {
-            total_percentage += percentages.get(i).unwrap();
-        }
-        if total_percentage != 100 {
-            return Err(ContractError::InvalidPercentage);
-        }
 
         let mut escrow: Map<Address, i128> = env
             .storage()
@@ -436,15 +499,20 @@ impl GameContract {
         for i in 0..winners.len() {
             let winner = winners.get(i).unwrap();
             let percentage = percentages.get(i).unwrap();
+            total_percentage += percentage;
             let payout_amount = (total_pool * percentage as i128) / 100;
             distributed += payout_amount;
             let winner_escrow = escrow.get(winner.clone()).unwrap_or(0);
             escrow.set(winner.clone(), winner_escrow + payout_amount);
         }
 
+        if total_percentage != 100 {
+            return Err(ContractError::InvalidPercentage);
+        }
+
         // Dust goes to first winner
         let remainder = total_pool - distributed;
-        if remainder > 0 && winners.len() > 0 {
+        if remainder > 0 && !winners.is_empty() {
             let first_winner = winners.get(0).unwrap();
             let winner_escrow = escrow.get(first_winner.clone()).unwrap_or(0);
             escrow.set(first_winner.clone(), winner_escrow + remainder);
@@ -548,11 +616,11 @@ impl GameContract {
         escrow.set(winner.clone(), winner_escrow + payout);
 
         // Credit treasury with the fee portion
-        if fee > 0 {
-            if let Some(ref treasury_addr) = treasury_addr_opt {
-                let treasury_escrow = escrow.get(treasury_addr.clone()).unwrap_or(0);
-                escrow.set(treasury_addr.clone(), treasury_escrow + fee);
-            }
+        if fee > 0
+            && let Some(ref treasury_addr) = treasury_addr_opt
+        {
+            let treasury_escrow = escrow.get(treasury_addr.clone()).unwrap_or(0);
+            escrow.set(treasury_addr.clone(), treasury_escrow + fee);
         }
 
         env.storage().instance().set(&ESCROW, &escrow);
@@ -562,10 +630,10 @@ impl GameContract {
         let contract_address = env.current_contract_address();
 
         token_client.transfer(&contract_address, winner, &payout);
-        if fee > 0 {
-            if let Some(ref treasury_addr) = treasury_addr_opt {
-                token_client.transfer(&contract_address, treasury_addr, &fee);
-            }
+        if fee > 0
+            && let Some(ref treasury_addr) = treasury_addr_opt
+        {
+            token_client.transfer(&contract_address, treasury_addr, &fee);
         }
 
         Ok(())
@@ -762,6 +830,367 @@ impl GameContract {
     pub fn treasury_balance(env: Env) -> i128 {
         env.storage().instance().get(&TREASURY).unwrap_or(0)
     }
+
+    // ── Dispute Resolution System ──────────────────────────────────────────
+
+    /// Configure dispute resolution system
+    /// * `arbitrator` - Address of the dispute arbitrator
+    /// * `dispute_fee` - Fee required to file a dispute (in tokens)
+    pub fn configure_dispute_system(
+        env: Env,
+        admin: Address,
+        arbitrator: Address,
+        dispute_fee: i128,
+    ) {
+        let current_admin: Address = env
+            .storage()
+            .instance()
+            .get(&CONTRACT_ADMIN)
+            .expect("Not initialized");
+        current_admin.require_auth();
+
+        if admin != current_admin {
+            panic!("Unauthorized admin address");
+        }
+        if dispute_fee < 0 {
+            panic!("Dispute fee must be non-negative");
+        }
+
+        env.storage().instance().set(&ARBITRATOR, &arbitrator);
+        env.storage().instance().set(&DISPUTE_FEE, &dispute_fee);
+    }
+
+    /// Configure timeout duration (in ledger sequences)
+    pub fn configure_timeout(env: Env, admin: Address, duration: u64) {
+        let current_admin: Address = env
+            .storage()
+            .instance()
+            .get(&CONTRACT_ADMIN)
+            .expect("Not initialized");
+        current_admin.require_auth();
+
+        if admin != current_admin {
+            panic!("Unauthorized admin address");
+        }
+        if duration == 0 {
+            panic!("Timeout duration must be greater than 0");
+        }
+
+        env.storage().instance().set(&TIMEOUT_DURATION, &duration);
+    }
+
+    /// File a dispute against the opponent for a game.
+    pub fn file_dispute(
+        env: Env,
+        game_id: u64,
+        filer: Address,
+        against: Address,
+        reason: Bytes,
+    ) -> Result<u64, ContractError> {
+        let games: Map<u64, Game> = env
+            .storage()
+            .instance()
+            .get(&GAMES)
+            .ok_or(ContractError::GameNotFound)?;
+
+        let game = games.get(game_id).ok_or(ContractError::GameNotFound)?;
+
+        if game.state != GameState::InProgress {
+            return Err(ContractError::NotDisputable);
+        }
+
+        if filer != game.player1 && Some(filer.clone()) != game.player2 {
+            return Err(ContractError::NotPlayer);
+        }
+        if against == filer {
+            return Err(ContractError::InvalidMove);
+        }
+        if against != game.player1 && Some(against.clone()) != game.player2 {
+            return Err(ContractError::NotPlayer);
+        }
+
+        filer.require_auth();
+
+        let dispute_fee: i128 = env.storage().instance().get(&DISPUTE_FEE).unwrap_or(0);
+        if dispute_fee > 0 {
+            let token_client = Self::token_client(&env);
+            let contract_address = env.current_contract_address();
+
+            if token_client.balance(&filer) < dispute_fee {
+                return Err(ContractError::InsufficientDisputeFee);
+            }
+
+            token_client.transfer(&filer, &contract_address, &dispute_fee);
+        }
+
+        let mut dispute_counter: u64 = env.storage().instance().get(&DISPUTE_COUNTER).unwrap_or(0);
+        dispute_counter += 1;
+        env.storage()
+            .instance()
+            .set(&DISPUTE_COUNTER, &dispute_counter);
+
+        let dispute = Dispute {
+            id: dispute_counter,
+            game_id,
+            filer: filer.clone(),
+            against,
+            reason,
+            status: DisputeStatus::Pending,
+            filed_at: env.ledger().sequence() as u64,
+            resolution: None,
+        };
+
+        let mut disputes: Map<u64, Dispute> = env
+            .storage()
+            .instance()
+            .get(&DISPUTES)
+            .unwrap_or(Map::new(&env));
+        disputes.set(dispute_counter, dispute);
+        env.storage().instance().set(&DISPUTES, &disputes);
+
+        env.events().publish(
+            (symbol_short!("dispute"), symbol_short!("filed")),
+            (dispute_counter, filer),
+        );
+
+        Ok(dispute_counter)
+    }
+
+    /// Claim timeout win when opponent hasn't moved within timeout period
+    /// The current player can claim victory if the opponent hasn't made a move
+    /// within the configured timeout duration
+    pub fn claim_timeout_win(
+        env: Env,
+        game_id: u64,
+        claimant: Address,
+    ) -> Result<(), ContractError> {
+        let mut games: Map<u64, Game> = env
+            .storage()
+            .instance()
+            .get(&GAMES)
+            .ok_or(ContractError::GameNotFound)?;
+
+        let mut game = games.get(game_id).ok_or(ContractError::GameNotFound)?;
+
+        if game.state != GameState::InProgress {
+            return Err(ContractError::GameNotInProgress);
+        }
+        if claimant != game.player1 && Some(claimant.clone()) != game.player2 {
+            return Err(ContractError::NotPlayer);
+        }
+
+        claimant.require_auth();
+
+        let waiting_player = if game.current_turn == 1 {
+            game.player2
+                .as_ref()
+                .ok_or(ContractError::GameFull)?
+                .clone()
+        } else {
+            game.player1.clone()
+        };
+
+        if claimant != waiting_player {
+            return Err(ContractError::InvalidTimeoutClaimant);
+        }
+
+        let timeout_duration: u64 = env
+            .storage()
+            .instance()
+            .get(&TIMEOUT_DURATION)
+            .ok_or(ContractError::TimeoutNotConfigured)?;
+
+        let current_ledger = env.ledger().sequence() as u64;
+        let elapsed = current_ledger - game.last_move_at;
+
+        if elapsed < timeout_duration {
+            return Err(ContractError::TimeoutNotReached);
+        }
+
+        game.state = GameState::Completed;
+        game.winner = Some(claimant.clone());
+        Self::process_payout(&env, &game, &claimant)?;
+
+        games.set(game_id, game);
+        env.storage().instance().set(&GAMES, &games);
+
+        env.events().publish(
+            (symbol_short!("timeout"), game_id),
+            (claimant, timeout_duration),
+        );
+
+        Ok(())
+    }
+
+    /// Query remaining time before timeout (in ledger sequences).
+    pub fn get_timeout_remaining(env: Env, game_id: u64) -> Option<u64> {
+        let games: Map<u64, Game> = env.storage().instance().get(&GAMES)?;
+        let game = games.get(game_id)?;
+
+        if game.state != GameState::InProgress {
+            return None;
+        }
+
+        let timeout_duration: u64 = env.storage().instance().get(&TIMEOUT_DURATION)?;
+        let current_ledger = env.ledger().sequence() as u64;
+        let elapsed = current_ledger - game.last_move_at;
+
+        if elapsed >= timeout_duration {
+            return Some(0);
+        }
+
+        Some(timeout_duration - elapsed)
+    }
+
+    /// Resolve a dispute and settle the game according to the arbitrator's decision.
+    pub fn resolve_dispute(
+        env: Env,
+        dispute_id: u64,
+        arbitrator: Address,
+        winner: Option<Address>,
+        resolution: Bytes,
+    ) -> Result<(), ContractError> {
+        let stored_arbitrator: Address = env
+            .storage()
+            .instance()
+            .get(&ARBITRATOR)
+            .ok_or(ContractError::NotArbitrator)?;
+
+        if arbitrator != stored_arbitrator {
+            return Err(ContractError::NotArbitrator);
+        }
+        arbitrator.require_auth();
+
+        let mut disputes: Map<u64, Dispute> = env
+            .storage()
+            .instance()
+            .get(&DISPUTES)
+            .ok_or(ContractError::DisputeNotFound)?;
+        let mut dispute = disputes
+            .get(dispute_id)
+            .ok_or(ContractError::DisputeNotFound)?;
+
+        if dispute.status != DisputeStatus::Pending {
+            return Err(ContractError::GameAlreadyCompleted);
+        }
+
+        let mut games: Map<u64, Game> = env
+            .storage()
+            .instance()
+            .get(&GAMES)
+            .ok_or(ContractError::GameNotFound)?;
+        let mut game = games
+            .get(dispute.game_id)
+            .ok_or(ContractError::GameNotFound)?;
+
+        if game.state != GameState::InProgress {
+            return Err(ContractError::GameAlreadyCompleted);
+        }
+
+        match winner {
+            Some(ref winner_addr) => {
+                if *winner_addr != game.player1 && Some(winner_addr.clone()) != game.player2 {
+                    return Err(ContractError::NotPlayer);
+                }
+                game.state = GameState::Completed;
+                game.winner = Some(winner_addr.clone());
+                Self::process_payout(&env, &game, winner_addr)?;
+            }
+            None => {
+                game.state = GameState::Drawn;
+                game.winner = None;
+                Self::process_draw_payout(&env, &game)?;
+            }
+        }
+
+        games.set(dispute.game_id, game);
+        env.storage().instance().set(&GAMES, &games);
+
+        dispute.status = DisputeStatus::Resolved;
+        dispute.resolution = Some(resolution);
+        disputes.set(dispute_id, dispute);
+        env.storage().instance().set(&DISPUTES, &disputes);
+
+        env.events().publish(
+            (symbol_short!("dispute"), symbol_short!("solved")),
+            (dispute_id, winner),
+        );
+
+        Ok(())
+    }
+
+    /// Reject a dispute (arbitrator only)
+    /// Returns the dispute fee to the filer
+    pub fn reject_dispute(
+        env: Env,
+        dispute_id: u64,
+        arbitrator: Address,
+        reason: Bytes,
+    ) -> Result<(), ContractError> {
+        // Verify arbitrator
+        let stored_arbitrator: Address = env
+            .storage()
+            .instance()
+            .get(&ARBITRATOR)
+            .ok_or(ContractError::NotArbitrator)?;
+
+        if arbitrator != stored_arbitrator {
+            return Err(ContractError::NotArbitrator);
+        }
+        arbitrator.require_auth();
+
+        // Get dispute
+        let mut disputes: Map<u64, Dispute> = env
+            .storage()
+            .instance()
+            .get(&DISPUTES)
+            .ok_or(ContractError::DisputeNotFound)?;
+
+        let mut dispute = disputes
+            .get(dispute_id)
+            .ok_or(ContractError::DisputeNotFound)?;
+
+        // Dispute must be pending
+        if dispute.status != DisputeStatus::Pending {
+            return Err(ContractError::GameAlreadyCompleted);
+        }
+
+        // Update dispute status
+        dispute.status = DisputeStatus::Rejected;
+        dispute.resolution = Some(reason);
+        let filer = dispute.filer.clone();
+        disputes.set(dispute_id, dispute);
+        env.storage().instance().set(&DISPUTES, &disputes);
+
+        // Refund dispute fee to filer
+        let dispute_fee: i128 = env.storage().instance().get(&DISPUTE_FEE).unwrap_or(0);
+        if dispute_fee > 0 {
+            let token_client = Self::token_client(&env);
+            let contract_address = env.current_contract_address();
+            token_client.transfer(&contract_address, &filer, &dispute_fee);
+        }
+
+        // Emit dispute rejected event
+        env.events().publish(
+            (symbol_short!("dispute"), symbol_short!("reject")),
+            (dispute_id, filer),
+        );
+
+        Ok(())
+    }
+
+    /// Query a dispute by ID
+    pub fn get_dispute(env: Env, dispute_id: u64) -> Result<Dispute, ContractError> {
+        let disputes: Map<u64, Dispute> = env
+            .storage()
+            .instance()
+            .get(&DISPUTES)
+            .ok_or(ContractError::DisputeNotFound)?;
+
+        disputes
+            .get(dispute_id)
+            .ok_or(ContractError::DisputeNotFound)
+    }
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -769,11 +1198,15 @@ impl GameContract {
 // ────────────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
+mod test;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use ed25519_dalek::{Signer, SigningKey};
     use rand::rngs::OsRng;
     use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::testutils::Ledger as _;
     use soroban_sdk::token::{StellarAssetClient, TokenClient};
     use soroban_sdk::{Address, Bytes, BytesN, Env};
 
@@ -1032,5 +1465,560 @@ mod tests {
         let sig2 = sign_payload(&env, &signing_key, &recipient, reward_amount, nonce);
         let result = client.try_claim_puzzle_reward(&recipient, &reward_amount, &nonce, &sig2);
         assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+    }
+
+    // ── Timeout Tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_configure_timeout() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, GameContract);
+        let client = GameContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let admin_key = Bytes::from_slice(&env, &[0u8; 32]);
+        let treasury_addr = Address::generate(&env);
+
+        client.initialize_puzzle_rewards(&admin, &admin_key, &0i128, &0u32, &treasury_addr);
+        client.configure_timeout(&admin, &1000u64);
+    }
+
+    #[test]
+    fn test_claim_timeout_win_success() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let issuer = Address::generate(&env);
+        let stellar_token = env.register_stellar_asset_contract_v2(issuer.clone());
+        let token_address = stellar_token.address();
+        let token_client = TokenClient::new(&env, &token_address);
+        let stellar_asset_client = StellarAssetClient::new(&env, &token_address);
+
+        let admin = Address::generate(&env);
+        let player1 = Address::generate(&env);
+        let player2 = Address::generate(&env);
+        let treasury_addr = Address::generate(&env);
+
+        stellar_asset_client.mint(&player1, &1_000i128);
+        stellar_asset_client.mint(&player2, &1_000i128);
+
+        let contract_id = env.register_contract(None, GameContract);
+        let client = GameContractClient::new(&env, &contract_id);
+
+        client.initialize_token(&admin, &token_address);
+        client.initialize_puzzle_rewards(
+            &admin,
+            &Bytes::from_slice(&env, &[0u8; 32]),
+            &0i128,
+            &0u32,
+            &treasury_addr,
+        );
+        client.configure_timeout(&admin, &100u64);
+        client.set_max_stake(&1_000i128);
+
+        let wager: i128 = 100;
+        let game_id = client.create_game(&player1, &wager);
+        client.join_game(&game_id, &player2);
+
+        env.as_contract(&contract_id, || {
+            let mut games: Map<u64, Game> = env.storage().instance().get(&GAMES).unwrap();
+            let mut game = games.get(game_id).unwrap();
+            game.last_move_at = 0;
+            games.set(game_id, game);
+            env.storage().instance().set(&GAMES, &games);
+        });
+
+        env.ledger().set_sequence_number(101);
+
+        client.claim_timeout_win(&game_id, &player2);
+
+        assert_eq!(token_client.balance(&player2), 1_100);
+    }
+
+    #[test]
+    fn test_claim_timeout_win_not_reached() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let issuer = Address::generate(&env);
+        let stellar_token = env.register_stellar_asset_contract_v2(issuer.clone());
+        let token_address = stellar_token.address();
+        let stellar_asset_client = StellarAssetClient::new(&env, &token_address);
+
+        let admin = Address::generate(&env);
+        let player1 = Address::generate(&env);
+        let player2 = Address::generate(&env);
+        let treasury_addr = Address::generate(&env);
+
+        stellar_asset_client.mint(&player1, &1_000i128);
+        stellar_asset_client.mint(&player2, &1_000i128);
+
+        let contract_id = env.register_contract(None, GameContract);
+        let client = GameContractClient::new(&env, &contract_id);
+
+        client.initialize_token(&admin, &token_address);
+        client.initialize_puzzle_rewards(
+            &admin,
+            &Bytes::from_slice(&env, &[0u8; 32]),
+            &0i128,
+            &0u32,
+            &treasury_addr,
+        );
+        client.configure_timeout(&admin, &1000u64);
+        client.set_max_stake(&1_000i128);
+
+        let wager: i128 = 100;
+        let game_id = client.create_game(&player1, &wager);
+        client.join_game(&game_id, &player2);
+
+        let result = client.try_claim_timeout_win(&game_id, &player2);
+        assert_eq!(result, Err(Ok(ContractError::TimeoutNotReached)));
+    }
+
+    #[test]
+    fn test_get_timeout_remaining() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let issuer = Address::generate(&env);
+        let stellar_token = env.register_stellar_asset_contract_v2(issuer.clone());
+        let token_address = stellar_token.address();
+        let stellar_asset_client = StellarAssetClient::new(&env, &token_address);
+
+        let admin = Address::generate(&env);
+        let player1 = Address::generate(&env);
+        let player2 = Address::generate(&env);
+        let treasury_addr = Address::generate(&env);
+
+        stellar_asset_client.mint(&player1, &1_000i128);
+        stellar_asset_client.mint(&player2, &1_000i128);
+
+        let contract_id = env.register_contract(None, GameContract);
+        let client = GameContractClient::new(&env, &contract_id);
+
+        client.initialize_token(&admin, &token_address);
+        client.initialize_puzzle_rewards(
+            &admin,
+            &Bytes::from_slice(&env, &[0u8; 32]),
+            &0i128,
+            &0u32,
+            &treasury_addr,
+        );
+        client.configure_timeout(&admin, &1000u64);
+        client.set_max_stake(&1_000i128);
+
+        let wager: i128 = 100;
+        let game_id = client.create_game(&player1, &wager);
+        client.join_game(&game_id, &player2);
+
+        let remaining = client.get_timeout_remaining(&game_id);
+        assert_eq!(remaining, Some(1000));
+
+        env.ledger().set_sequence_number(501);
+        let remaining = client.get_timeout_remaining(&game_id);
+        assert_eq!(remaining, Some(499));
+
+        env.ledger().set_sequence_number(1001);
+        let remaining = client.get_timeout_remaining(&game_id);
+        assert_eq!(remaining, Some(0));
+    }
+
+    // ── Dispute Resolution Tests ───────────────────────────────────────────
+
+    #[test]
+    fn test_file_dispute_success() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let issuer = Address::generate(&env);
+        let stellar_token = env.register_stellar_asset_contract_v2(issuer.clone());
+        let token_address = stellar_token.address();
+        let token_client = TokenClient::new(&env, &token_address);
+        let stellar_asset_client = StellarAssetClient::new(&env, &token_address);
+
+        let admin = Address::generate(&env);
+        let player1 = Address::generate(&env);
+        let player2 = Address::generate(&env);
+        let arbitrator = Address::generate(&env);
+        let treasury_addr = Address::generate(&env);
+
+        stellar_asset_client.mint(&player1, &1_000i128);
+        stellar_asset_client.mint(&player2, &1_000i128);
+
+        let contract_id = env.register_contract(None, GameContract);
+        let client = GameContractClient::new(&env, &contract_id);
+
+        client.initialize_token(&admin, &token_address);
+        client.initialize_puzzle_rewards(
+            &admin,
+            &Bytes::from_slice(&env, &[0u8; 32]),
+            &0i128,
+            &0u32,
+            &treasury_addr,
+        );
+        client.configure_dispute_system(&admin, &arbitrator, &25i128);
+        client.set_max_stake(&1_000i128);
+
+        let wager: i128 = 100;
+        let game_id = client.create_game(&player1, &wager);
+        client.join_game(&game_id, &player2);
+
+        let reason = Bytes::from_slice(&env, b"Engine abuse");
+        let dispute_id = client.file_dispute(&game_id, &player1, &player2, &reason);
+
+        let dispute = client.get_dispute(&dispute_id);
+        assert_eq!(dispute.game_id, game_id);
+        assert_eq!(dispute.filer, player1);
+        assert_eq!(dispute.against, player2);
+        assert_eq!(dispute.status, DisputeStatus::Pending);
+        assert_eq!(token_client.balance(&player1), 875);
+    }
+
+    #[test]
+    fn test_resolve_dispute_winner_takes_all() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let issuer = Address::generate(&env);
+        let stellar_token = env.register_stellar_asset_contract_v2(issuer.clone());
+        let token_address = stellar_token.address();
+        let token_client = TokenClient::new(&env, &token_address);
+        let stellar_asset_client = StellarAssetClient::new(&env, &token_address);
+
+        let admin = Address::generate(&env);
+        let player1 = Address::generate(&env);
+        let player2 = Address::generate(&env);
+        let arbitrator = Address::generate(&env);
+        let treasury_addr = Address::generate(&env);
+
+        stellar_asset_client.mint(&player1, &1_000i128);
+        stellar_asset_client.mint(&player2, &1_000i128);
+
+        let contract_id = env.register_contract(None, GameContract);
+        let client = GameContractClient::new(&env, &contract_id);
+
+        client.initialize_token(&admin, &token_address);
+        client.initialize_puzzle_rewards(
+            &admin,
+            &Bytes::from_slice(&env, &[0u8; 32]),
+            &0i128,
+            &0u32,
+            &treasury_addr,
+        );
+        client.configure_dispute_system(&admin, &arbitrator, &0i128);
+        client.set_max_stake(&1_000i128);
+
+        let wager: i128 = 100;
+        let game_id = client.create_game(&player1, &wager);
+        client.join_game(&game_id, &player2);
+
+        let reason = Bytes::from_slice(&env, b"Illegal move");
+        let dispute_id = client.file_dispute(&game_id, &player1, &player2, &reason);
+        let resolution = Bytes::from_slice(&env, b"Awarding win to player1");
+        client.resolve_dispute(
+            &dispute_id,
+            &arbitrator,
+            &Some(player1.clone()),
+            &resolution,
+        );
+
+        let dispute = client.get_dispute(&dispute_id);
+        assert_eq!(dispute.status, DisputeStatus::Resolved);
+        assert_eq!(token_client.balance(&player1), 1_100);
+    }
+
+    #[test]
+    fn test_file_dispute_rejects_settled_games() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let issuer = Address::generate(&env);
+        let stellar_token = env.register_stellar_asset_contract_v2(issuer.clone());
+        let token_address = stellar_token.address();
+        let stellar_asset_client = StellarAssetClient::new(&env, &token_address);
+
+        let admin = Address::generate(&env);
+        let player1 = Address::generate(&env);
+        let player2 = Address::generate(&env);
+        let arbitrator = Address::generate(&env);
+        let treasury_addr = Address::generate(&env);
+
+        stellar_asset_client.mint(&player1, &1_000i128);
+        stellar_asset_client.mint(&player2, &1_000i128);
+
+        let contract_id = env.register_contract(None, GameContract);
+        let client = GameContractClient::new(&env, &contract_id);
+
+        client.initialize_token(&admin, &token_address);
+        client.initialize_puzzle_rewards(
+            &admin,
+            &Bytes::from_slice(&env, &[0u8; 32]),
+            &0i128,
+            &0u32,
+            &treasury_addr,
+        );
+        client.configure_dispute_system(&admin, &arbitrator, &25i128);
+        client.set_max_stake(&1_000i128);
+
+        let wager: i128 = 100;
+        let game_id = client.create_game(&player1, &wager);
+        client.join_game(&game_id, &player2);
+        client.forfeit(&game_id, &player1);
+
+        let reason = Bytes::from_slice(&env, b"Too late");
+        let result = client.try_file_dispute(&game_id, &player1, &player2, &reason);
+        assert_eq!(result, Err(Ok(ContractError::NotDisputable)));
+    }
+
+    #[test]
+    fn test_resolve_dispute_rejects_already_settled_games() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let issuer = Address::generate(&env);
+        let stellar_token = env.register_stellar_asset_contract_v2(issuer.clone());
+        let token_address = stellar_token.address();
+        let stellar_asset_client = StellarAssetClient::new(&env, &token_address);
+
+        let admin = Address::generate(&env);
+        let player1 = Address::generate(&env);
+        let player2 = Address::generate(&env);
+        let arbitrator = Address::generate(&env);
+        let treasury_addr = Address::generate(&env);
+
+        stellar_asset_client.mint(&player1, &1_000i128);
+        stellar_asset_client.mint(&player2, &1_000i128);
+
+        let contract_id = env.register_contract(None, GameContract);
+        let client = GameContractClient::new(&env, &contract_id);
+
+        client.initialize_token(&admin, &token_address);
+        client.initialize_puzzle_rewards(
+            &admin,
+            &Bytes::from_slice(&env, &[0u8; 32]),
+            &0i128,
+            &0u32,
+            &treasury_addr,
+        );
+        client.configure_dispute_system(&admin, &arbitrator, &0i128);
+        client.set_max_stake(&1_000i128);
+
+        let wager: i128 = 100;
+        let game_id = client.create_game(&player1, &wager);
+        client.join_game(&game_id, &player2);
+
+        let reason = Bytes::from_slice(&env, b"Illegal move");
+        let dispute_id = client.file_dispute(&game_id, &player1, &player2, &reason);
+
+        client.forfeit(&game_id, &player1);
+
+        let resolution = Bytes::from_slice(&env, b"Awarding win to player1");
+        let result = client.try_resolve_dispute(
+            &dispute_id,
+            &arbitrator,
+            &Some(player1.clone()),
+            &resolution,
+        );
+        assert_eq!(result, Err(Ok(ContractError::GameAlreadyCompleted)));
+    }
+
+    #[test]
+    fn test_claim_timeout_win_rejects_current_turn_player() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let issuer = Address::generate(&env);
+        let stellar_token = env.register_stellar_asset_contract_v2(issuer.clone());
+        let token_address = stellar_token.address();
+        let stellar_asset_client = StellarAssetClient::new(&env, &token_address);
+
+        let admin = Address::generate(&env);
+        let player1 = Address::generate(&env);
+        let player2 = Address::generate(&env);
+        let treasury_addr = Address::generate(&env);
+
+        stellar_asset_client.mint(&player1, &1_000i128);
+        stellar_asset_client.mint(&player2, &1_000i128);
+
+        let contract_id = env.register_contract(None, GameContract);
+        let client = GameContractClient::new(&env, &contract_id);
+
+        client.initialize_token(&admin, &token_address);
+        client.initialize_puzzle_rewards(
+            &admin,
+            &Bytes::from_slice(&env, &[0u8; 32]),
+            &0i128,
+            &0u32,
+            &treasury_addr,
+        );
+        client.configure_timeout(&admin, &100u64);
+        client.set_max_stake(&1_000i128);
+
+        let wager: i128 = 100;
+        let game_id = client.create_game(&player1, &wager);
+        client.join_game(&game_id, &player2);
+
+        env.as_contract(&contract_id, || {
+            let mut games: Map<u64, Game> = env.storage().instance().get(&GAMES).unwrap();
+            let mut game = games.get(game_id).unwrap();
+            game.last_move_at = 0;
+            games.set(game_id, game);
+            env.storage().instance().set(&GAMES, &games);
+        });
+
+        env.ledger().set_sequence_number(101);
+
+        let result = client.try_claim_timeout_win(&game_id, &player1);
+        assert_eq!(result, Err(Ok(ContractError::InvalidTimeoutClaimant)));
+    }
+
+    #[test]
+    fn test_submit_move_sequence_updates_turn_and_history() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let issuer = Address::generate(&env);
+        let stellar_token = env.register_stellar_asset_contract_v2(issuer.clone());
+        let token_address = stellar_token.address();
+        let stellar_asset_client = StellarAssetClient::new(&env, &token_address);
+
+        let admin = Address::generate(&env);
+        let player1 = Address::generate(&env);
+        let player2 = Address::generate(&env);
+
+        stellar_asset_client.mint(&player1, &1_000i128);
+        stellar_asset_client.mint(&player2, &1_000i128);
+
+        let contract_id = env.register_contract(None, GameContract);
+        let client = GameContractClient::new(&env, &contract_id);
+
+        client.initialize_token(&admin, &token_address);
+        client.set_max_stake(&1_000i128);
+
+        let wager: i128 = 100;
+        let game_id = client.create_game(&player1, &wager);
+        client.join_game(&game_id, &player2);
+
+        let first_move = Vec::from_array(&env, [12u32, 28u32]);
+        client.submit_move(&game_id, &player1, &first_move);
+
+        env.ledger().set_sequence_number(2);
+
+        let second_move = Vec::from_array(&env, [52u32, 36u32]);
+        client.submit_move(&game_id, &player2, &second_move);
+
+        let game = client.get_game(&game_id);
+        assert_eq!(game.current_turn, 1);
+        assert_eq!(game.moves.len(), 2);
+        assert_eq!(game.last_move_at, 2);
+
+        let recorded_first = game.moves.get(0).unwrap();
+        let recorded_second = game.moves.get(1).unwrap();
+
+        assert_eq!(recorded_first.player, player1);
+        assert_eq!(
+            recorded_first.move_data,
+            Vec::from_array(&env, [12u32, 28u32])
+        );
+        assert_eq!(recorded_first.timestamp, 0);
+
+        assert_eq!(recorded_second.player, player2);
+        assert_eq!(
+            recorded_second.move_data,
+            Vec::from_array(&env, [52u32, 36u32])
+        );
+        assert_eq!(recorded_second.timestamp, 2);
+    }
+
+    #[test]
+    fn test_submit_move_rejects_out_of_turn_and_empty_moves() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let issuer = Address::generate(&env);
+        let stellar_token = env.register_stellar_asset_contract_v2(issuer.clone());
+        let token_address = stellar_token.address();
+        let stellar_asset_client = StellarAssetClient::new(&env, &token_address);
+
+        let admin = Address::generate(&env);
+        let player1 = Address::generate(&env);
+        let player2 = Address::generate(&env);
+
+        stellar_asset_client.mint(&player1, &1_000i128);
+        stellar_asset_client.mint(&player2, &1_000i128);
+
+        let contract_id = env.register_contract(None, GameContract);
+        let client = GameContractClient::new(&env, &contract_id);
+
+        client.initialize_token(&admin, &token_address);
+        client.set_max_stake(&1_000i128);
+
+        let wager: i128 = 100;
+        let game_id = client.create_game(&player1, &wager);
+        client.join_game(&game_id, &player2);
+
+        let early_move = Vec::from_array(&env, [52u32, 36u32]);
+        let result = client.try_submit_move(&game_id, &player2, &early_move);
+        assert_eq!(result, Err(Ok(ContractError::NotYourTurn)));
+
+        let empty_move = Vec::new(&env);
+        let result = client.try_submit_move(&game_id, &player1, &empty_move);
+        assert_eq!(result, Err(Ok(ContractError::InvalidMove)));
+    }
+
+    #[test]
+    fn test_reject_dispute_refund_fee() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let issuer = Address::generate(&env);
+        let stellar_token = env.register_stellar_asset_contract_v2(issuer.clone());
+        let token_address = stellar_token.address();
+        let token_client = TokenClient::new(&env, &token_address);
+        let stellar_asset_client = StellarAssetClient::new(&env, &token_address);
+
+        let admin = Address::generate(&env);
+        let player1 = Address::generate(&env);
+        let player2 = Address::generate(&env);
+        let arbitrator = Address::generate(&env);
+        let treasury_addr = Address::generate(&env);
+
+        stellar_asset_client.mint(&player1, &1_000i128);
+        stellar_asset_client.mint(&player2, &1_000i128);
+
+        let contract_id = env.register_contract(None, GameContract);
+        let client = GameContractClient::new(&env, &contract_id);
+
+        client.initialize_token(&admin, &token_address);
+        client.initialize_puzzle_rewards(
+            &admin,
+            &Bytes::from_slice(&env, &[0u8; 32]),
+            &0i128,
+            &0u32,
+            &treasury_addr,
+        );
+        client.configure_dispute_system(&admin, &arbitrator, &25i128);
+        client.set_max_stake(&1_000i128);
+
+        let wager: i128 = 100;
+        let game_id = client.create_game(&player1, &wager);
+        client.join_game(&game_id, &player2);
+
+        // File dispute
+        let reason = Bytes::from_slice(&env, b"False claim");
+        let dispute_id = client.file_dispute(&game_id, &player1, &player2, &reason);
+
+        // Arbitrator rejects dispute
+        let rejection_reason = Bytes::from_slice(&env, b"No evidence");
+        client.reject_dispute(&dispute_id, &arbitrator, &rejection_reason);
+
+        // Verify dispute fee was refunded
+        assert_eq!(token_client.balance(&player1), 900);
+
+        // Verify dispute is rejected
+        let dispute = client.get_dispute(&dispute_id);
+        assert_eq!(dispute.status, DisputeStatus::Rejected);
     }
 }
