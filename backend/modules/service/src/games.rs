@@ -1,15 +1,13 @@
 use db_entity::{game, prelude::Game};
 use sea_orm::{
-    ColumnTrait, DbErr, EntityTrait, Order, QueryFilter,
-    QueryOrder, QuerySelect, ActiveModelTrait, Set,
+    ColumnTrait, Condition, DatabaseConnection, DbErr, EntityTrait, Order, QueryFilter,
+    QueryOrder, QuerySelect, ActiveModelTrait, Set, TransactionTrait,
 };
-use sea_orm::{Condition, DatabaseConnection};
 use uuid::Uuid;
 use chrono::{DateTime, Utc, TimeZone};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use dto::games::{GameStatus, CreateGameRequest, MakeMoveRequest, GameDisplayDTO};
 use error::error::ApiError;
-use sea_orm::TransactionTrait;
 
 // chess module excluded from workspace — stubbed until re-integrated
 pub struct ValidatedGame;
@@ -89,7 +87,6 @@ impl GameService {
     result: db_entity::game::ResultSide,
     _rating_config: Option<RatingConfig>,
 ) -> Result<(i32, i32), ApiError> {
-    use sea_orm::TransactionTrait;
 
     let txn = db.begin().await
         .map_err(|e| ApiError::DatabaseError(e))?;
@@ -128,7 +125,7 @@ impl GameService {
         let game_model = game::Entity::find_by_id(game_id)
             .one(db)
             .await
-            .map_err(|e| ApiError::DatabaseError(format!("Failed to fetch game: {}", e)))?
+            .map_err(|e| ApiError::DatabaseError(e))?
             .ok_or_else(|| ApiError::NotFound("Game not found".to_string()))?;
 
         let player_id = if is_white {
