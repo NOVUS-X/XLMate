@@ -446,7 +446,7 @@ mod test {
         let admin = Address::generate(&env);
         client.initialize(&admin);
 
-        assert_eq!(client.paused(), false);
+        assert!(!client.paused());
         assert_eq!(client.get_admin(), admin);
     }
 
@@ -463,11 +463,11 @@ mod test {
 
         // Pause
         client.pause(&admin);
-        assert_eq!(client.paused(), true);
+        assert!(client.paused());
 
         // Unpause
         client.unpause(&admin);
-        assert_eq!(client.paused(), false);
+        assert!(!client.paused());
     }
 
     #[test]
@@ -620,7 +620,7 @@ mod test {
         // View functions should work even when paused
         assert_eq!(client.balance_of(&user), 1000);
         assert_eq!(client.total_supply(), 1000);
-        assert_eq!(client.paused(), true);
+        assert!(client.paused());
         assert_eq!(client.get_admin(), admin);
     }
 
