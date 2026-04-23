@@ -19,4 +19,3 @@ db = {path = "../db"}
 db_entity = { path = "../db/entity" }
 error = { path = "../error" }
 engine = { path = "../engine" }
-chess = { path = "../chess" }

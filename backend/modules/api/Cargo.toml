@@ -27,7 +27,6 @@ service = { path = "../service" }
 matchmaking = { path = "../matchmaking" }
 error = { path = "../error" }
 security = { path = "../security" }
-chess = { path = "../chess" }
 challenge = { path = "../challenge" }
 actix-cors = "0.7.0"
 utoipa-redoc = { version = "3", features = ["actix-web"] }
