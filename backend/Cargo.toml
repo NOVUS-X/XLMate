@@ -9,6 +9,7 @@ members = [
     "modules/error",
     "modules/service",
     "modules/security",
+    "modules/chess",
     "modules/challenge",
     "modules/tournament",
     "modules/matchmaking",
