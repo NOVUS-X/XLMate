@@ -98,6 +98,9 @@ const FEE_BIPS: Symbol = symbol_short!("FEE_BIPS"); // u32  (0–1000, i.e. 0–
 const TREASURY_ADDR: Symbol = symbol_short!("TR_ADDR"); // Address
 const CONTRACT_ADMIN: Symbol = symbol_short!("CT_ADMIN"); // Address
 
+// SEP-10 / Node Identity (#4)
+const AUTH_NONCE: Symbol = symbol_short!("AUTH_NONC"); // Map<u64, bool>
+const NODE_REG: Symbol = symbol_short!("NODE_REG"); // Map<BytesN<32>, u64>
 // Dispute resolution system
 const DISPUTE_FEE: Symbol = symbol_short!("D_FEE"); // i128 - fee to file a dispute
 const DISPUTES: Symbol = symbol_short!("DISPUTES"); // Map<u64, Dispute>
@@ -130,6 +133,8 @@ pub enum ContractError {
     /// Invalid or already-used backend signature  (#199)
     Unauthorized = 14,
     StakeLimitExceeded = 15,
+    /// Timed out SEP-10 authentication  (#4)
+    AuthTimeout = 16,
     /// Game has not timed out yet
     TimeoutNotReached = 16,
     /// Timeout feature not configured
@@ -817,6 +822,77 @@ impl GameContract {
         env.storage().instance().get(&TREASURY).unwrap_or(0)
     }
 
+    // ── #4 – Verification of SEP-10 challenge logic ──────────────────────────
+    //
+    // Verifies a cryptographic challenge signed by a node for authentication.
+    // This provides on-chain node identity tracking for game settlement and
+    // off-chain workers based on the SEP-10 challenge-response logic.
+    //
+    // Signature payload (SHA-256 pre-image):
+    //   "SEP10" || node_pubkey_bytes || nonce_le_8bytes || timestamp_le_8bytes
+    pub fn verify_sep10_challenge(
+        env: Env,
+        node_pubkey: BytesN<32>,
+        nonce: u64,
+        timestamp: u64,
+        signature: BytesN<64>,
+    ) -> Result<(), ContractError> {
+        // 1. Time bounds verification
+        // Soroban ledger timestamp is in seconds since epoch
+        let current_time = env.ledger().timestamp();
+        // Allow a 5-minute (300 seconds) valid time window
+        if current_time > timestamp + 300 || current_time < timestamp.saturating_sub(300) {
+            return Err(ContractError::AuthTimeout);
+        }
+
+        // 2. Replay protection
+        let mut nonces: Map<u64, bool> = env
+            .storage()
+            .instance()
+            .get(&AUTH_NONCE)
+            .unwrap_or(Map::new(&env));
+
+        if nonces.get(nonce).unwrap_or(false) {
+            return Err(ContractError::Unauthorized);
+        }
+
+        // 3. Payload construction and Signature verification
+        let mut payload_bytes = Bytes::new(&env);
+
+        let prefix = Bytes::from_slice(&env, b"SEP10");
+        payload_bytes.append(&prefix);
+
+        payload_bytes.append(&node_pubkey.clone().into());
+
+        let nonce_le: [u8; 8] = nonce.to_le_bytes();
+        payload_bytes.append(&Bytes::from_slice(&env, &nonce_le));
+
+        let timestamp_le: [u8; 8] = timestamp.to_le_bytes();
+        payload_bytes.append(&Bytes::from_slice(&env, &timestamp_le));
+
+        let digest_bytesn: BytesN<32> = env.crypto().sha256(&payload_bytes).into();
+        let digest_bytes: Bytes = digest_bytesn.into();
+
+        // ed25519_verify panics if the signature is invalid
+        env.crypto()
+            .ed25519_verify(&node_pubkey, &digest_bytes, &signature);
+
+        // 4. Mark challenge as used
+        nonces.set(nonce, true);
+        env.storage().instance().set(&AUTH_NONCE, &nonces);
+
+        // 5. Register node identity for future on-chain tracking
+        let mut registry: Map<BytesN<32>, u64> = env
+            .storage()
+            .instance()
+            .get(&NODE_REG)
+            .unwrap_or(Map::new(&env));
+        registry.set(node_pubkey.clone(), current_time);
+        env.storage().instance().set(&NODE_REG, &registry);
+
+        // 6. Emit an event for analytics and off-chain indexing
+        env.events()
+            .publish((symbol_short!("node_auth"), node_pubkey), timestamp);
     // ── Dispute Resolution System ──────────────────────────────────────────
 
     /// Configure dispute resolution system
@@ -1165,6 +1241,14 @@ impl GameContract {
         Ok(())
     }
 
+    /// Helper to get a node's last SEP-10 authentication timestamp.
+    pub fn get_node_auth(env: Env, node_pubkey: BytesN<32>) -> u64 {
+        let registry: Map<BytesN<32>, u64> = env
+            .storage()
+            .instance()
+            .get(&NODE_REG)
+            .unwrap_or(Map::new(&env));
+        registry.get(node_pubkey).unwrap_or(0)
     /// Query a dispute by ID
     pub fn get_dispute(env: Env, dispute_id: u64) -> Result<Dispute, ContractError> {
         let disputes: Map<u64, Dispute> = env
