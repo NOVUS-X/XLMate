@@ -418,6 +418,42 @@ impl GameContract {
         Ok(())
     }
 
+    /// Settle the game gracefully by the admin/backend (e.g. checkmate validated off-chain).
+    /// This sets the game to Completed and automatically processes the payout.
+    pub fn resolve_game(env: Env, game_id: u64, winner: Address) -> Result<(), ContractError> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&CONTRACT_ADMIN)
+            .expect("Not initialized");
+        admin.require_auth();
+
+        let mut games: Map<u64, Game> = env
+            .storage()
+            .instance()
+            .get(&GAMES)
+            .ok_or(ContractError::GameNotFound)?;
+
+        let mut game = games.get(game_id).ok_or(ContractError::GameNotFound)?;
+
+        if game.state != GameState::InProgress {
+            return Err(ContractError::GameNotInProgress);
+        }
+
+        if game.player1 != winner && Some(winner.clone()) != game.player2 {
+            return Err(ContractError::NotPlayer);
+        }
+
+        game.state = GameState::Completed;
+        game.winner = Some(winner.clone());
+        Self::process_payout(&env, &game, &winner)?;
+
+        games.set(game_id, game);
+        env.storage().instance().set(&GAMES, &games);
+
+        Ok(())
+    }
+
     pub fn payout_tournament(
         env: Env,
         game_id: u64,
@@ -1506,3 +1542,4 @@ mod tests {
         assert_eq!(dispute.status, DisputeStatus::Rejected);
     }
 }
+mod test;
