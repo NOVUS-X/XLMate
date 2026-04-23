@@ -341,3 +341,44 @@ fn test_upgrade_admin_logic() {
     let res = client.try_upgrade_admin(&stranger);
     assert!(res.is_err());
 }
+
+#[test]
+fn test_resolve_game_by_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, GameContract);
+    let client = GameContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let player1 = Address::generate(&env);
+    let player2 = Address::generate(&env);
+    let treasury_addr = Address::generate(&env);
+
+    let stellar_token = env.register_stellar_asset_contract_v2(issuer);
+    let token_address = stellar_token.address();
+    let stellar_asset_client = StellarAssetClient::new(&env, &token_address);
+    let token_client = TokenClient::new(&env, &token_address);
+
+    client.initialize_token(&admin, &token_address);
+
+    let admin_key = Bytes::from_slice(&env, &[0u8; 32]);
+    client.initialize_puzzle_rewards(&admin, &admin_key, &0i128, &20u32, &treasury_addr);
+
+    let wager = 500;
+    stellar_asset_client.mint(&player1, &wager);
+    stellar_asset_client.mint(&player2, &wager);
+
+    let game_id = client.create_game(&player1, &wager);
+    client.join_game(&game_id, &player2);
+
+    // Let the admin resolve the game, meaning player1 won
+    client.resolve_game(&game_id, &player1);
+
+    // Check balances
+    // Pool = 1000. Fee = 1000 * 20 / 1000 = 20. Payout = 980.
+    assert_eq!(token_client.balance(&player1), 980);
+    assert_eq!(token_client.balance(&treasury_addr), 20);
+    assert_eq!(token_client.balance(&player2), 0);
+}
