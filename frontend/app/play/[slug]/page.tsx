@@ -7,6 +7,8 @@ import { useParams, useRouter } from "next/navigation";
 import { useChessSocket } from "@/hook/useChessSocket";
 import { FaUser, FaClock, FaSignal } from "react-icons/fa";
 import { Web3StatusBar } from "@/components/Web3StatusBar";
+import { useCheatDetection } from "@/hook/useCheatDetection";
+import { CheatDetectionPanel } from "@/components/chess/CheatDetectionPanel";
 
 const ChessboardComponent = dynamic(
   () => import("@/components/chess/ChessboardComponent"),
@@ -45,6 +47,7 @@ export default function PlayOnlinePage() {
   const [blackTime] = useState(600);
   const [playerColor] = useState<"white" | "black">("white");
   const [gameStatus, setGameStatus] = useState<GameStatus>("playing");
+  const [isCheatPanelExpanded, setIsCheatPanelExpanded] = useState(false);
 
   const {
     status: socketStatus,
@@ -64,10 +67,20 @@ export default function PlayOnlinePage() {
     }
   }, [game]);
 
+  // Cheat detection
+  const {
+    opponentAnalysis,
+    playerAnalysis,
+    recordMove: recordCheatMove,
+    reset: resetCheatDetection,
+    isActive: isCheatDetectionActive,
+  } = useCheatDetection(playerColor);
+
   // Apply opponent's move to local chess state
   useEffect(() => {
     if (!lastOpponentMove) return;
     try {
+      const fenBeforeOpponentMove = game.fen();
       const move = game.move({
         from: lastOpponentMove.from,
         to: lastOpponentMove.to,
@@ -76,12 +89,19 @@ export default function PlayOnlinePage() {
       if (move) {
         setPosition(game.fen());
         setMoveHistory((prev: string[]) => [...prev, move.san]);
+        recordCheatMove(
+          move.san,
+          move,
+          fenBeforeOpponentMove,
+          playerColor === "white" ? "b" : "w",
+          Math.ceil(game.moveNumber() / 2),
+        );
         checkGameStatus();
       }
     } catch {
       // illegal move from server — ignore
     }
-  }, [lastOpponentMove, game, checkGameStatus]);
+  }, [lastOpponentMove, game, checkGameStatus, recordCheatMove, playerColor]);
 
   const isMyTurn =
     socketStatus === "connected" &&
@@ -99,6 +119,7 @@ export default function PlayOnlinePage() {
       if (!isMyTurn || gameStatus !== "playing") return false;
 
       try {
+        const fenBeforeMyMove = game.fen();
         const move = game.move({
           from: sourceSquare,
           to: targetSquare,
@@ -109,19 +130,27 @@ export default function PlayOnlinePage() {
         requestAnimationFrame(() => setPosition(game.fen()));
         setMoveHistory((prev: string[]) => [...prev, move.san]);
         sendMove({ from: sourceSquare, to: targetSquare, promotion: "q" });
+        recordCheatMove(
+          move.san,
+          move,
+          fenBeforeMyMove,
+          playerColor === "white" ? "w" : "b",
+          Math.ceil(game.moveNumber() / 2),
+        );
         checkGameStatus();
         return true;
       } catch {
         return false;
       }
     },
-    [isMyTurn, game, gameStatus, sendMove, checkGameStatus],
+    [isMyTurn, game, gameStatus, sendMove, checkGameStatus, recordCheatMove, playerColor],
   );
 
   const handleResign = useCallback(() => {
     setGameStatus("resigned");
+    resetCheatDetection();
     disconnect();
-  }, [disconnect]);
+  }, [disconnect, resetCheatDetection]);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -324,6 +353,15 @@ export default function PlayOnlinePage() {
                 )}
               </div>
             </div>
+
+            {/* Cheat Detection Panel */}
+            <CheatDetectionPanel
+              opponentAnalysis={opponentAnalysis}
+              playerAnalysis={playerAnalysis}
+              isActive={isCheatDetectionActive}
+              isExpanded={isCheatPanelExpanded}
+              onToggle={() => setIsCheatPanelExpanded((prev: boolean) => !prev)}
+            />
 
             {/* Controls */}
             <div className="flex gap-2">
