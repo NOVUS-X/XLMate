@@ -58,10 +58,6 @@ jobs:
         working-directory: backend
         run: cargo test -p st_core
 
-      - name: Check API integration
-        working-directory: backend
-        run: cargo check --workspace
-
       - name: Run backend tests
         working-directory: backend
         run: cargo test --workspace --exclude chess
