@@ -9,12 +9,14 @@ use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
 use actix_web::error::ErrorUnauthorized;
 use serde_json::{Value, json};
 use uuid::Uuid;
+use chrono;
 
 // For Redis Pub/Sub
 use redis::AsyncCommands;
 use redis::aio::ConnectionManager;
 use tokio::task::JoinHandle;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Core WebSocket message types
 #[derive(Message, Serialize, Clone, Debug, PartialEq)]
@@ -53,11 +55,60 @@ pub struct Broadcast {
 /// Lobby state actor
 pub struct LobbyState {
     sessions: HashMap<String, HashSet<Recipient<WsMessage>>>,
+    // Track number of connections per game for monitoring
+    connection_counts: HashMap<String, AtomicUsize>,
+    // Server instance ID for distributed tracking
+    instance_id: String,
+    // Redis connection for cross-instance communication
+    redis_conn: Option<Arc<ConnectionManager>>,
 }
 
 impl LobbyState {
     pub fn new() -> Self {
-        LobbyState { sessions: HashMap::new() }
+        LobbyState { 
+            sessions: HashMap::new(),
+            connection_counts: HashMap::new(),
+            instance_id: Uuid::new_v4().to_string(),
+            redis_conn: None,
+        }
+    }
+
+    pub fn with_redis(redis_conn: Arc<ConnectionManager>) -> Self {
+        LobbyState {
+            sessions: HashMap::new(),
+            connection_counts: HashMap::new(),
+            instance_id: Uuid::new_v4().to_string(),
+            redis_conn: Some(redis_conn),
+        }
+    }
+
+    /// Get connection count for a game
+    pub fn get_connection_count(&self, game_id: &str) -> usize {
+        self.sessions.get(game_id).map(|s| s.len()).unwrap_or(0)
+    }
+
+    /// Get total connections across all games
+    pub fn get_total_connections(&self) -> usize {
+        self.sessions.values().map(|s| s.len()).sum()
+    }
+
+    /// Publish connection event to Redis for cross-instance tracking
+    async fn publish_connection_event(&self, game_id: &str, event: &str, count: usize) {
+        if let Some(redis_conn) = &self.redis_conn {
+            let mut conn = (*redis_conn).clone();
+            let channel = format!("ws:connections:{}", game_id);
+            let message = json!({
+                "event": event,
+                "game_id": game_id,
+                "instance_id": self.instance_id,
+                "count": count,
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            });
+            
+            if let Ok(payload) = serde_json::to_string(&message) {
+                let _: redis::RedisResult<()> = conn.publish(channel, payload).await;
+            }
+        }
     }
 }
 
@@ -69,8 +120,39 @@ impl Handler<Connect> for LobbyState {
     type Result = ();
 
     fn handle(&mut self, msg: Connect, _: &mut Context<Self>) {
-        let entry = self.sessions.entry(msg.game_id).or_default();
+        let entry = self.sessions.entry(msg.game_id.clone()).or_default();
         entry.insert(msg.addr);
+        
+        let count = entry.len();
+        log::info!(
+            "[Instance {}] Client connected to game {}. Total connections: {}",
+            self.instance_id,
+            msg.game_id,
+            count
+        );
+        
+        // Publish connection event to Redis for horizontal scaling
+        let game_id = msg.game_id.clone();
+        let redis_conn = self.redis_conn.clone();
+        let instance_id = self.instance_id.clone();
+        
+        actix::spawn(async move {
+            if let Some(conn) = redis_conn {
+                let mut conn = (*conn).clone();
+                let channel = format!("ws:connections:{}", game_id);
+                let message = json!({
+                    "event": "connected",
+                    "game_id": game_id,
+                    "instance_id": instance_id,
+                    "count": count,
+                    "timestamp": chrono::Utc::now().to_rfc3339()
+                });
+                
+                if let Ok(payload) = serde_json::to_string(&message) {
+                    let _: redis::RedisResult<()> = conn.publish(channel, payload).await;
+                }
+            }
+        });
     }
 }
 
@@ -80,9 +162,41 @@ impl Handler<Disconnect> for LobbyState {
     fn handle(&mut self, msg: Disconnect, _: &mut Context<Self>) {
         if let Some(set) = self.sessions.get_mut(&msg.game_id) {
             set.remove(&msg.addr);
+            let count = set.len();
+            
+            log::info!(
+                "[Instance {}] Client disconnected from game {}. Remaining connections: {}",
+                self.instance_id,
+                msg.game_id,
+                count
+            );
+            
             if set.is_empty() {
                 self.sessions.remove(&msg.game_id);
             }
+            
+            // Publish disconnection event to Redis
+            let game_id = msg.game_id.clone();
+            let redis_conn = self.redis_conn.clone();
+            let instance_id = self.instance_id.clone();
+            
+            actix::spawn(async move {
+                if let Some(conn) = redis_conn {
+                    let mut conn = (*conn).clone();
+                    let channel = format!("ws:connections:{}", game_id);
+                    let message = json!({
+                        "event": "disconnected",
+                        "game_id": game_id,
+                        "instance_id": instance_id,
+                        "count": count,
+                        "timestamp": chrono::Utc::now().to_rfc3339()
+                    });
+                    
+                    if let Ok(payload) = serde_json::to_string(&message) {
+                        let _: redis::RedisResult<()> = conn.publish(channel, payload).await;
+                    }
+                }
+            });
         }
     }
 }

@@ -40,6 +40,11 @@ st_core = { path = "../st_core", features = ["api"] }
 # For Redis Pub/Sub in WebSocket
 redis = { version = "0.24", features = ["tokio-comp", "json"] }
 
+# For IPFS/Arweave archival
+reqwest = { version = "0.11", features = ["json", "multipart"] }
+sha2 = "0.10"
+hex = "0.4"
+
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
 actix-rt = "2.9"

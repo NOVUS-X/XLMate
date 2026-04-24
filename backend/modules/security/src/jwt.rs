@@ -28,6 +28,10 @@ pub struct Claims {
     pub jti: Option<String>,
     /// Token type (access or reconnect)
     pub token_type: TokenType,
+    /// Session ID for tracking active sessions
+    pub session_id: Option<String>,
+    /// IP address hash for binding token to client IP (optional)
+    pub ip_hash: Option<String>,
 }
 
 /// Token type enumeration
@@ -58,6 +62,17 @@ impl JwtService {
 
     /// Generate a new JWT access token for a user
     pub fn generate_token(&self, user_id: i32, username: &str) -> Result<String, jsonwebtoken::errors::Error> {
+        self.generate_token_with_session(user_id, username, None, None)
+    }
+
+    /// Generate a JWT access token with session tracking and IP binding
+    pub fn generate_token_with_session(
+        &self, 
+        user_id: i32, 
+        username: &str,
+        session_id: Option<String>,
+        ip_hash: Option<String>,
+    ) -> Result<String, jsonwebtoken::errors::Error> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -69,8 +84,10 @@ impl JwtService {
             username: username.to_string(),
             exp: now + self.expiration_time,
             iat: now,
-            jti: None,
+            jti: session_id.clone(),
             token_type: TokenType::Access,
+            session_id,
+            ip_hash,
         };
 
         let token = encode(

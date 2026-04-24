@@ -7,6 +7,8 @@ pub mod config;
 pub mod server;
 pub mod players;
 pub mod games;
+pub mod pgn_archive;
+pub mod pgn_archive_api;
 
 // External modules
 extern crate challenge;

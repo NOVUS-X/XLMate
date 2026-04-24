@@ -17,6 +17,7 @@ use crate::games::{create_game, get_game, make_move, list_games, join_game, aban
 use crate::auth::{login, register, refresh, logout};
 use crate::ai::{get_ai_suggestion, analyze_position};
 use crate::ws::{LobbyState, ws_route};
+use crate::pgn_archive_api::{archive_pgn, batch_archive_pgn};
 use crate::config::AppConfig;
 use actix_governor::{Governor, GovernorConfigBuilder};
 use matchmaking::service::MatchmakingService;
@@ -185,7 +186,9 @@ pub async fn main() -> std::io::Result<()> {
                     .service(make_move)
                     .service(abandon_game)
                     .service(import_game)
-                    .service(complete_game),
+                    .service(complete_game)
+                    .service(archive_pgn)
+                    .service(batch_archive_pgn),
             )
             // Auth routes
             .service(

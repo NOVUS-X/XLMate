@@ -4,7 +4,7 @@ use std::env;
 use uuid::Uuid;
 
 use dto::auth::{RegisterRequest, LoginRequest, AuthResponse, ErrorResponse, RefreshTokenRequest, RefreshResponse, LogoutResponse};
-use security::{JwtService, TokenService, TokenServiceError};
+use security::{JwtService, TokenService, TokenServiceError, SessionService};
 use sea_orm::DatabaseConnection;
 
 /// Register a new user
@@ -58,6 +58,7 @@ pub async fn register(
 #[post("/login")]
 pub async fn login(
     db: web::Data<DatabaseConnection>,
+    req: HttpRequest,
     payload: web::Json<LoginRequest>,
     jwt_service: web::Data<JwtService>,
 ) -> HttpResponse {
@@ -73,8 +74,31 @@ pub async fn login(
     let user_id = 1;
     let username = payload.username.clone();
 
-    // Generate access token
-    let access_token = match jwt_service.generate_token(user_id, &username) {
+    // Extract IP address and user agent for session tracking
+    let ip_address = req.connection_info().real_ip_remote_addr().map(|s| s.to_string());
+    let user_agent = req.headers().get("User-Agent")
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.to_string());
+
+    // Create a new session
+    let session_ttl = env::var("SESSION_TTL_HOURS")
+        .unwrap_or_else(|_| "168".to_string()) // 7 days default
+        .parse::<i64>()
+        .unwrap_or(168);
+
+    let session_id = match SessionService::create_session(&db, user_id, ip_address, user_agent, session_ttl).await {
+        Ok(sid) => sid,
+        Err(e) => {
+            log::error!("Failed to create session: {}", e);
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                message: "Failed to create session".to_string(),
+                code: "SESSION_ERROR".to_string(),
+            });
+        }
+    };
+
+    // Generate access token with session ID
+    let access_token = match jwt_service.generate_token_with_session(user_id, &username, Some(session_id.to_string()), None) {
         Ok(t) => t,
         Err(_) => {
             return HttpResponse::InternalServerError().json(ErrorResponse {
