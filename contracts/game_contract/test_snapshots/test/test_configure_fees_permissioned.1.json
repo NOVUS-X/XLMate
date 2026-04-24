@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 4,
+    "address": 5,
     "nonce": 0
   },
   "auth": [
@@ -17,12 +17,12 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "bytes": "fe25af8e1f4b54dbc1a105c028705b916bececc995975bf3ac155300733bdf3d"
+                  "bytes": "0000000000000000000000000000000000000000000000000000000000000000"
                 },
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 10000
+                    "lo": 0
                   }
                 },
                 {
@@ -30,6 +30,31 @@
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "function_name": "configure_fees",
+              "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                },
+                {
+                  "u32": 50
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 }
               ]
             }
@@ -78,7 +103,7 @@
                           "symbol": "ADMIN_KEY"
                         },
                         "val": {
-                          "bytes": "fe25af8e1f4b54dbc1a105c028705b916bececc995975bf3ac155300733bdf3d"
+                          "bytes": "0000000000000000000000000000000000000000000000000000000000000000"
                         }
                       },
                       {
@@ -94,7 +119,7 @@
                           "symbol": "FEE_BIPS"
                         },
                         "val": {
-                          "u32": 0
+                          "u32": 50
                         }
                       },
                       {
@@ -115,7 +140,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 10000
+                            "lo": 0
                           }
                         }
                       },
@@ -124,7 +149,7 @@
                           "symbol": "TR_ADDR"
                         },
                         "val": {
-                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                         }
                       }
                     ]
@@ -159,6 +184,39 @@
                 "key": {
                   "ledger_key_nonce": {
                     "nonce": 801925984706572462
+                  }
+                },
+                "durability": "temporary",
+                "val": "void"
+              }
+            },
+            "ext": "v0"
+          },
+          6311999
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+            "key": {
+              "ledger_key_nonce": {
+                "nonce": 5541220902715666415
+              }
+            },
+            "durability": "temporary"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+                "key": {
+                  "ledger_key_nonce": {
+                    "nonce": 5541220902715666415
                   }
                 },
                 "durability": "temporary",
@@ -218,12 +276,12 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "bytes": "fe25af8e1f4b54dbc1a105c028705b916bececc995975bf3ac155300733bdf3d"
+                  "bytes": "0000000000000000000000000000000000000000000000000000000000000000"
                 },
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 10000
+                    "lo": 0
                   }
                 },
                 {
@@ -275,25 +333,19 @@
                 "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
               },
               {
-                "symbol": "claim_puzzle_reward"
+                "symbol": "configure_fees"
               }
             ],
             "data": {
               "vec": [
                 {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                },
+                {
+                  "u32": 50
+                },
+                {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                },
-                {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 500
-                  }
-                },
-                {
-                  "u64": 1
-                },
-                {
-                  "bytes": "10bd25bcba3efaabdc32469056ee38b224f5a935a1caf97d9d7931836e086f4fafecef9e807b71f618f47592fa1a9f3518a9e7a80b23d24e952473aa9a436c03"
                 }
               ]
             }
@@ -311,16 +363,81 @@
           "v0": {
             "topics": [
               {
-                "symbol": "error"
+                "symbol": "fn_return"
               },
               {
-                "error": {
-                  "crypto": "invalid_input"
-                }
+                "symbol": "configure_fees"
+              }
+            ],
+            "data": "void"
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": null,
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "fn_call"
+              },
+              {
+                "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
+              },
+              {
+                "symbol": "configure_fees"
               }
             ],
             "data": {
-              "string": "failed ED25519 verification"
+              "vec": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                },
+                {
+                  "u32": 100
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "log"
+              }
+            ],
+            "data": {
+              "vec": [
+                {
+                  "string": "caught panic 'Unauthorized admin address' from contract function 'Symbol(obj#37)'"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                },
+                {
+                  "u32": 100
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                }
+              ]
             }
           }
         }
@@ -340,32 +457,7 @@
               },
               {
                 "error": {
-                  "crypto": "invalid_input"
-                }
-              }
-            ],
-            "data": {
-              "string": "escalating error to panic"
-            }
-          }
-        }
-      },
-      "failed_call": true
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
-        "type_": "diagnostic",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "error"
-              },
-              {
-                "error": {
-                  "crypto": "invalid_input"
+                  "wasm_vm": "invalid_action"
                 }
               }
             ],
@@ -390,63 +482,32 @@
               },
               {
                 "error": {
-                  "crypto": "invalid_input"
+                  "wasm_vm": "invalid_action"
                 }
               }
             ],
             "data": {
               "vec": [
                 {
-                  "string": "contract call failed"
+                  "string": "contract try_call failed"
                 },
                 {
-                  "symbol": "claim_puzzle_reward"
+                  "symbol": "configure_fees"
                 },
                 {
                   "vec": [
                     {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                    },
+                    {
+                      "u32": 100
+                    },
+                    {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                    },
-                    {
-                      "i128": {
-                        "hi": 0,
-                        "lo": 500
-                      }
-                    },
-                    {
-                      "u64": 1
-                    },
-                    {
-                      "bytes": "10bd25bcba3efaabdc32469056ee38b224f5a935a1caf97d9d7931836e086f4fafecef9e807b71f618f47592fa1a9f3518a9e7a80b23d24e952473aa9a436c03"
                     }
                   ]
                 }
               ]
-            }
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": null,
-        "type_": "diagnostic",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "error"
-              },
-              {
-                "error": {
-                  "crypto": "invalid_input"
-                }
-              }
-            ],
-            "data": {
-              "string": "escalating error to panic"
             }
           }
         }
