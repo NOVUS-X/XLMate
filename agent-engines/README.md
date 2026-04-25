@@ -26,6 +26,7 @@ WorkerPool ------------------> ResourceMonitor
 
 - `gpu_worker/config.py`: worker and GPU configuration models.
 - `gpu_worker/models.py`: request, result, and status models.
+- `gpu_worker/anomaly.py`: passive bot-farm anomaly detection over request telemetry.
 - `gpu_worker/uci_bridge.py`: async UCI subprocess bridge and protocol parsing.
 - `gpu_worker/worker.py`: single-worker lifecycle and analysis orchestration.
 - `gpu_worker/pool.py`: least-loaded worker dispatch.
@@ -154,6 +155,29 @@ async def run() -> None:
 
 
 asyncio.run(run())
+```
+
+### Bot-farm anomaly detection
+
+`BotFarmAnomalyDetector` passively scores request telemetry before or after dispatch; it never blocks `WorkerPool.submit()`.
+
+```python
+from gpu_worker.anomaly import BotFarmAnomalyDetector
+from gpu_worker.models import AnalysisRequest
+
+
+detector = BotFarmAnomalyDetector()
+report = detector.record_request(
+    AnalysisRequest(
+        fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        depth=18,
+        actor_id="user-42",
+        session_id="session-abc",
+        ip_hash="sha256:ip-hash",
+        device_hash="sha256:device-hash",
+    )
+)
+print(report.risk_level, report.score)
 ```
 
 ## Testing
