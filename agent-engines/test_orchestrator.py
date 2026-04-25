@@ -1,44 +1,48 @@
 import unittest
 import asyncio
-from main import AgentOrchestrator, EngineType, DeploymentState
+from main import AgentEngineOrchestrator, EngineConfig, EngineType, DeploymentStatus
 
-class TestAgentOrchestrator(unittest.TestCase):
+class TestAgentEngineOrchestrator(unittest.TestCase):
     def setUp(self):
-        self.orchestrator = AgentOrchestrator()
+        self.orchestrator = AgentEngineOrchestrator()
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
 
     def tearDown(self):
         self.loop.close()
 
-    def test_register_engine(self):
-        engine_id = "test-engine"
-        result = self.loop.run_until_complete(
-            self.orchestrator.register_engine(engine_id, EngineType.CUSTOM)
-        )
-        self.assertTrue(result)
-        self.assertIn(engine_id, self.orchestrator.engines)
-        self.assertEqual(self.orchestrator.engines[engine_id]["type"], "custom")
+    def test_successful_provisioning(self):
+        async def run_test():
+            config = EngineConfig(EngineType.STOCKFISH)
+            success = await self.orchestrator.provision_engine("test-agent", config)
+            self.assertTrue(success)
+            state = self.orchestrator.get_orchestration_state("test-agent")
+            self.assertEqual(state["pipeline_status"], "ready")
+            self.assertIn("test-agent", self.orchestrator.get_orchestration_state()["agents"])
+        
+        self.loop.run_until_complete(run_test())
 
-    def test_deploy_engine_success(self):
-        engine_id = "test-deploy"
-        self.loop.run_until_complete(
-            self.orchestrator.register_engine(engine_id, EngineType.LEELA)
-        )
-        result = self.loop.run_until_complete(
-            self.orchestrator.deploy_engine(engine_id)
-        )
-        self.assertTrue(result)
-        status = self.orchestrator.get_engine_status(engine_id)
-        self.assertEqual(status["pipeline"]["state"], DeploymentState.ACTIVE.value)
-        self.assertEqual(status["engine"]["status"], "deployed")
+    def test_duplicate_provisioning_prevention(self):
+        async def run_test():
+            config = EngineConfig(EngineType.CUSTOM)
+            await self.orchestrator.provision_engine("dup-agent", config)
+            success = await self.orchestrator.provision_engine("dup-agent", config)
+            self.assertFalse(success)
+        
+        self.loop.run_until_complete(run_test())
 
-    def test_deploy_engine_not_found(self):
-        engine_id = "non-existent"
-        result = self.loop.run_until_complete(
-            self.orchestrator.deploy_engine(engine_id)
-        )
-        self.assertFalse(result)
+    def test_concurrent_orchestration(self):
+        async def run_test():
+            configs = [
+                self.orchestrator.provision_engine("a1", EngineConfig(EngineType.MAIA)),
+                self.orchestrator.provision_engine("a2", EngineConfig(EngineType.LEELA_CHESS_ZERO))
+            ]
+            results = await asyncio.gather(*configs)
+            self.assertTrue(all(results))
+            state = self.orchestrator.get_orchestration_state()
+            self.assertEqual(state["active_count"], 2)
+        
+        self.loop.run_until_complete(run_test())
 
 if __name__ == "__main__":
     unittest.main()

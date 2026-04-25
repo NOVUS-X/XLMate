@@ -407,7 +407,7 @@ impl GameContract {
         Ok(())
     }
 
-    pub fn claim_draw(env: Env, game_id: u64, player: Address) -> Result<(), ContractError> {
+    pub fn claim_draw(env: Env, game_id: u64, player: Address, signature: BytesN<64>) -> Result<(), ContractError> {
         let mut games: Map<u64, Game> = env
             .storage()
             .instance()
@@ -423,11 +423,130 @@ impl GameContract {
             return Err(ContractError::NotPlayer);
         }
 
-        player.require_auth();
+        // Verify backend admin signature for a draw to prevent unilateral draws
+        let admin_key_bytes: Bytes = env
+            .storage()
+            .instance()
+            .get(&ADMIN_KEY)
+            .expect("Not initialized");
+
+        let admin_pubkey: BytesN<32> = admin_key_bytes
+            .try_into()
+            .expect("Admin public key must be 32 bytes");
+
+        let mut payload_bytes = Bytes::new(&env);
+        let game_id_le: [u8; 8] = game_id.to_le_bytes();
+        payload_bytes.append(&Bytes::from_slice(&env, &game_id_le));
+        // Append "DRAW" to differentiate from claim_win payload
+        payload_bytes.append(&Bytes::from_slice(&env, b"DRAW"));
+
+        let digest_bytesn: BytesN<32> = env.crypto().sha256(&payload_bytes).into();
+        let digest_bytes: Bytes = digest_bytesn.into();
+        env.crypto()
+            .ed25519_verify(&admin_pubkey, &digest_bytes, &signature);
 
         game.state = GameState::Drawn;
         Self::process_draw_payout(&env, &game)?;
 
+        games.set(game_id, game);
+        env.storage().instance().set(&GAMES, &games);
+
+        Ok(())
+    }
+
+    pub fn claim_win(
+        env: Env,
+        game_id: u64,
+        winner: Address,
+        signature: BytesN<64>,
+    ) -> Result<(), ContractError> {
+        let mut games: Map<u64, Game> = env
+            .storage()
+            .instance()
+            .get(&GAMES)
+            .ok_or(ContractError::GameNotFound)?;
+
+        let mut game = games.get(game_id).ok_or(ContractError::GameNotFound)?;
+
+        if game.state != GameState::InProgress {
+            return Err(ContractError::GameNotInProgress);
+        }
+
+        if game.player1 != winner && Some(winner.clone()) != game.player2 {
+            return Err(ContractError::NotPlayer);
+        }
+
+        // Verify admin signature to confirm the win
+        let admin_key_bytes: Bytes = env
+            .storage()
+            .instance()
+            .get(&ADMIN_KEY)
+            .expect("Not initialized");
+
+        let admin_pubkey: BytesN<32> = admin_key_bytes
+            .try_into()
+            .expect("Admin public key must be 32 bytes");
+
+        let mut payload_bytes = Bytes::new(&env);
+        let game_id_le: [u8; 8] = game_id.to_le_bytes();
+        payload_bytes.append(&Bytes::from_slice(&env, &game_id_le));
+
+        let winner_str = winner.clone().to_string();
+        let str_len = winner_str.len() as usize;
+        let mut addr_buf = [0u8; 64];
+        winner_str.copy_into_slice(&mut addr_buf[..str_len]);
+        payload_bytes.append(&Bytes::from_slice(&env, &addr_buf[..str_len]));
+
+        let digest_bytesn: BytesN<32> = env.crypto().sha256(&payload_bytes).into();
+        let digest_bytes: Bytes = digest_bytesn.into();
+        env.crypto()
+            .ed25519_verify(&admin_pubkey, &digest_bytes, &signature);
+
+        game.state = GameState::Completed;
+        game.winner = Some(winner.clone());
+        Self::process_payout(&env, &game, &winner)?;
+
+        games.set(game_id, game);
+        env.storage().instance().set(&GAMES, &games);
+
+        Ok(())
+    }
+
+    pub fn cancel_game(env: Env, game_id: u64, player: Address) -> Result<(), ContractError> {
+        let mut games: Map<u64, Game> = env
+            .storage()
+            .instance()
+            .get(&GAMES)
+            .ok_or(ContractError::GameNotFound)?;
+
+        let mut game = games.get(game_id).ok_or(ContractError::GameNotFound)?;
+
+        if game.state != GameState::Created {
+            return Err(ContractError::GameAlreadyCompleted);
+        }
+
+        if game.player1 != player {
+            return Err(ContractError::NotPlayer);
+        }
+
+        player.require_auth();
+
+        // Refund player1's staked wager
+        let mut escrow: Map<Address, i128> = env
+            .storage()
+            .instance()
+            .get(&ESCROW)
+            .unwrap_or(Map::new(&env));
+
+        let current_escrow = escrow.get(player.clone()).unwrap_or(0);
+        escrow.set(player.clone(), current_escrow - game.wager_amount);
+        env.storage().instance().set(&ESCROW, &escrow);
+
+        let token_client = Self::token_client(&env);
+        let contract_address = env.current_contract_address();
+        token_client.transfer(&contract_address, &player, &game.wager_amount);
+
+        game.state = GameState::Completed; // Mark as completed to prevent joining
         games.set(game_id, game);
         env.storage().instance().set(&GAMES, &games);
 

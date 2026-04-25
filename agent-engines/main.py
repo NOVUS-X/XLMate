@@ -1,97 +1,122 @@
 import json
 import logging
 import asyncio
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 from enum import Enum
+from dataclasses import dataclass, field, asdict
 
-# Configure logging to follow project style
+# Configure logging with a professional format
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-logger = logging.getLogger("agent-engines")
+logger = logging.getLogger("XLMate.AgentEngine")
 
 class EngineType(Enum):
     STOCKFISH = "stockfish"
-    LEELA = "leela"
+    LEELA_CHESS_ZERO = "lc0"
+    MAIA = "maia"
     CUSTOM = "custom"
 
-class DeploymentState(Enum):
-    PENDING = "pending"
-    DEPLOYING = "deploying"
-    ACTIVE = "active"
-    FAILED = "failed"
+class DeploymentStatus(Enum):
+    QUEUED = "queued"
+    PROVISIONING = "provisioning"
+    OPTIMIZING = "optimizing"
+    READY = "ready"
+    TERMINATED = "terminated"
 
-class AgentOrchestrator:
+@dataclass
+class EngineConfig:
+    engine_type: EngineType
+    threads: int = 1
+    memory_mb: int = 256
+    hash_size_mb: int = 64
+    custom_params: Dict[str, Any] = field(default_factory=dict)
+
+class AgentEngineOrchestrator:
     """
-    Orchestrates AI engines and deployment pipelines for the XLMate intelligent co-pilot.
-    Follows established design patterns for efficient resource utilization (Gas/CPU).
+    Manages the lifecycle and deployment of AI co-pilot engines for XLMate.
+    Focuses on efficient CPU/Memory allocation and concurrent pipeline execution.
     """
     
     def __init__(self):
-        self.engines: Dict[str, Dict[str, Any]] = {}
-        self.deployment_pipelines: Dict[str, Dict[str, Any]] = {}
+        self._active_engines: Dict[str, Dict[str, Any]] = {}
+        self._pipelines: Dict[str, DeploymentStatus] = {}
 
-    async def register_engine(self, engine_id: str, engine_type: EngineType, config: Optional[Dict[str, Any]] = None):
+    async def provision_engine(self, agent_id: str, config: EngineConfig) -> bool:
         """
-        Registers a new AI engine instance.
+        Starts the deployment pipeline for a specific agent engine.
         """
-        logger.info(f"Registering engine {engine_id} of type {engine_type.value}")
-        self.engines[engine_id] = {
-            "type": engine_type.value,
-            "config": config or {},
-            "status": "registered",
-            "created_at": asyncio.get_event_loop().time()
-        }
-        return True
-
-    async def deploy_engine(self, engine_id: str):
-        """
-        Simulates a deployment pipeline for an AI engine.
-        Optimized for CPU/Memory utilization by using asynchronous state management.
-        """
-        if engine_id not in self.engines:
-            logger.error(f"Engine {engine_id} not found for deployment")
+        if agent_id in self._active_engines:
+            logger.warning(f"Agent {agent_id} is already provisioned.")
             return False
 
-        logger.info(f"Starting deployment pipeline for engine {engine_id}")
-        self.deployment_pipelines[engine_id] = {
-            "state": DeploymentState.DEPLOYING.value,
-            "progress": 0
-        }
+        logger.info(f"Initializing deployment pipeline for Agent {agent_id} ({config.engine_type.value})")
+        self._pipelines[agent_id] = DeploymentStatus.QUEUED
+        
+        try:
+            # Step 1: Provisioning Resources
+            self._pipelines[agent_id] = DeploymentStatus.PROVISIONING
+            logger.info(f"[{agent_id}] Provisioning {config.threads} threads and {config.memory_mb}MB RAM...")
+            await asyncio.sleep(0.5)  # Simulate non-blocking I/O
 
-        # Simulate deployment steps (resource-intensive tasks orchestrated via async)
-        for i in range(1, 4):
-            await asyncio.sleep(0.1) # Simulate async work
-            self.deployment_pipelines[engine_id]["progress"] = i * 33
-            logger.info(f"Deployment progress for {engine_id}: {i*33}%")
+            # Step 2: Optimization
+            self._pipelines[agent_id] = DeploymentStatus.OPTIMIZING
+            logger.info(f"[{agent_id}] Optimizing engine parameters for resource efficiency...")
+            await asyncio.sleep(0.5)
 
-        self.deployment_pipelines[engine_id]["state"] = DeploymentState.ACTIVE.value
-        self.engines[engine_id]["status"] = "deployed"
-        logger.info(f"Engine {engine_id} successfully deployed and active")
-        return True
+            # Step 3: Deployment Successful
+            self._pipelines[agent_id] = DeploymentStatus.READY
+            self._active_engines[agent_id] = {
+                "config": asdict(config),
+                "status": DeploymentStatus.READY.value,
+                "metrics": {"cpu_usage": 0.0, "memory_usage": config.memory_mb}
+            }
+            logger.info(f"Agent {agent_id} is now ONLINE and ready for inference.")
+            return True
 
-    def get_engine_status(self, engine_id: str) -> Dict[str, Any]:
+        except Exception as e:
+            logger.error(f"Failed to deploy Agent {agent_id}: {str(e)}")
+            self._pipelines[agent_id] = DeploymentStatus.TERMINATED
+            return False
+
+    def get_orchestration_state(self, agent_id: Optional[str] = None) -> Dict[str, Any]:
         """
-        Returns the current status of an engine and its deployment.
+        Returns the current state of the orchestrator or a specific agent.
         """
-        engine = self.engines.get(engine_id, {})
-        pipeline = self.deployment_pipelines.get(engine_id, {})
+        if agent_id:
+            return {
+                "agent_id": agent_id,
+                "pipeline_status": self._pipelines.get(agent_id, "unknown").value if agent_id in self._pipelines else "unknown",
+                "engine_data": self._active_engines.get(agent_id)
+            }
+        
         return {
-            "engine": engine,
-            "pipeline": pipeline
+            "active_count": len(self._active_engines),
+            "agents": list(self._active_engines.keys()),
+            "pipelines": {k: v.value for k, v in self._pipelines.items()}
         }
 
-async def main():
-    orchestrator = AgentOrchestrator()
+async def run_demonstration():
+    orchestrator = AgentEngineOrchestrator()
     
-    # Example registration and deployment
-    engine_id = "xlmate-copilot-v1"
-    await orchestrator.register_engine(engine_id, EngineType.STOCKFISH, {"depth": 20})
-    await orchestrator.deploy_engine(engine_id)
-    
-    status = orchestrator.get_engine_status(engine_id)
-    print(json.dumps(status, indent=2))
+    # Define a high-performance configuration
+    pro_config = EngineConfig(
+        engine_type=EngineType.STOCKFISH,
+        threads=4,
+        memory_mb=1024,
+        custom_params={"Skill Level": 20}
+    )
+
+    # Deploy multiple engines concurrently to test orchestration efficiency
+    logger.info("Starting concurrent deployment of AI co-pilots...")
+    await asyncio.gather(
+        orchestrator.provision_engine("copilot-alpha", pro_config),
+        orchestrator.provision_engine("copilot-beta", EngineConfig(EngineType.MAIA))
+    )
+
+    print("\n--- Final Orchestration State ---")
+    print(json.dumps(orchestrator.get_orchestration_state(), indent=2))
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(run_demonstration())
