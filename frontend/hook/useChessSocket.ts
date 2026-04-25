@@ -312,13 +312,21 @@ export function useChessSocket(gameId: string | null): UseChessSocketReturn {
 
   // Initialize WebSocket when gameId changes
   useEffect(() => {
+    let active = true;
     if (gameId) {
-      const ws = createWebSocket();
+      createWebSocket().then(ws => {
+        if (!active && ws) {
+          ws.close();
+        }
+      });
+
       return () => {
+        active = false;
         isManualDisconnectRef.current = true;
         clearReconnectTimeout();
-        if (ws) {
-          ws.close();
+        if (wsRef.current) {
+          wsRef.current.close();
+          wsRef.current = null;
         }
       };
     } else {
