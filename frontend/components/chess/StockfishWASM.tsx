@@ -40,10 +40,66 @@ export function useStockfishWASM(config: WASMEngineConfig = {}): UseStockfishWAS
   const [error, setError] = useState<string | null>(null);
   
   const workerRef = useRef<Worker | null>(null);
-  const engineRef = useRef<any>(null);
+  const engineRef = useRef<unknown>(null);
   const resolveRef = useRef<((result: AnalysisResult) => void) | null>(null);
   const rejectRef = useRef<((error: Error) => void) | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Handle messages from engine
+  const handleEngineMessage = useCallback((data: { type: string; bestMove?: string; evaluation?: number | null; depth?: number; pv?: string[]; nodes?: number; timeMs?: number; message?: string }) => {
+    if (data.type === 'bestmove') {
+      setIsAnalyzing(false);
+      
+      if (resolveRef.current) {
+        const result: AnalysisResult = {
+          bestMove: data.bestMove || '',
+          evaluation: data.evaluation || null,
+          depth: data.depth || 0,
+          principalVariation: data.pv || [],
+          nodesSearched: data.nodes || 0,
+          timeMs: data.timeMs || 0,
+        };
+        
+        resolveRef.current(result);
+        resolveRef.current = null;
+        rejectRef.current = null;
+      }
+
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+    } else if (data.type === 'info') {
+      // Handle intermediate analysis info
+      console.log('Analysis progress:', data);
+    } else if (data.type === 'error') {
+      setIsAnalyzing(false);
+      setError(data.message || 'Engine error');
+      
+      if (rejectRef.current) {
+        rejectRef.current(new Error(data.message));
+        rejectRef.current = null;
+      }
+    }
+  }, []);
+
+  // Cleanup resources
+  const cleanup = useCallback(() => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    
+    if (workerRef.current) {
+      workerRef.current.postMessage({ type: 'quit' });
+      workerRef.current.terminate();
+      workerRef.current = null;
+    }
+    
+    engineRef.current = null;
+    setIsReady(false);
+    setIsAnalyzing(false);
+  }, []);
 
   // Initialize WASM engine
   useEffect(() => {
@@ -114,45 +170,7 @@ export function useStockfishWASM(config: WASMEngineConfig = {}): UseStockfishWAS
       cancelled = true;
       cleanup();
     };
-  }, [config]);
-
-  // Handle messages from engine
-  const handleEngineMessage = useCallback((data: any) => {
-    if (data.type === 'bestmove') {
-      setIsAnalyzing(false);
-      
-      if (resolveRef.current) {
-        const result: AnalysisResult = {
-          bestMove: data.bestMove || '',
-          evaluation: data.evaluation || null,
-          depth: data.depth || 0,
-          principalVariation: data.pv || [],
-          nodesSearched: data.nodes || 0,
-          timeMs: data.timeMs || 0,
-        };
-        
-        resolveRef.current(result);
-        resolveRef.current = null;
-        rejectRef.current = null;
-      }
-
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-        timeoutRef.current = null;
-      }
-    } else if (data.type === 'info') {
-      // Handle intermediate analysis info
-      console.log('Analysis progress:', data);
-    } else if (data.type === 'error') {
-      setIsAnalyzing(false);
-      setError(data.message || 'Engine error');
-      
-      if (rejectRef.current) {
-        rejectRef.current(new Error(data.message));
-        rejectRef.current = null;
-      }
-    }
-  }, []);
+  }, [config, cleanup, handleEngineMessage]);
 
   // Analyze a position
   const analyzePosition = useCallback(async (
@@ -213,24 +231,6 @@ export function useStockfishWASM(config: WASMEngineConfig = {}): UseStockfishWAS
     }
   }, [isAnalyzing]);
 
-  // Cleanup resources
-  const cleanup = useCallback(() => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-    
-    if (workerRef.current) {
-      workerRef.current.postMessage({ type: 'quit' });
-      workerRef.current.terminate();
-      workerRef.current = null;
-    }
-    
-    engineRef.current = null;
-    setIsReady(false);
-    setIsAnalyzing(false);
-  }, []);
-
   // Shutdown engine
   const shutdown = useCallback(() => {
     cleanup();
@@ -267,7 +267,7 @@ export function AnalysisDisplay({ result, isAnalyzing }: AnalysisDisplayProps) {
   if (!result) {
     return (
       <div className="analysis-empty">
-        <p>Click "Analyze" to get engine evaluation</p>
+        <p>Click &quot;Analyze&quot; to get engine evaluation</p>
       </div>
     );
   }
