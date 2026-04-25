@@ -1,3 +1,23 @@
+from __future__ import annotations
+
+import asyncio
+
+from gpu_worker.config import WorkerConfig
+from gpu_worker.pool import WorkerPool
+
+
+async def main() -> None:
+    """Start the GPU analysis worker pool and wait until interrupted."""
+
+    config = WorkerConfig()
+    pool = WorkerPool([config])
+    await pool.start_all()
+    print("GPU Analysis Worker Pool started")
+    try:
+        await asyncio.Event().wait()
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        await pool.shutdown_all()
+        print("Worker pool shut down")
 import json
 import logging
 import asyncio
@@ -119,4 +139,5 @@ async def run_demonstration():
     print(json.dumps(orchestrator.get_orchestration_state(), indent=2))
 
 if __name__ == "__main__":
+    asyncio.run(main())
     asyncio.run(run_demonstration())
