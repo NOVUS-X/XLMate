@@ -1,5 +1,13 @@
 """GPU-accelerated chess analysis workers for XLMate."""
 
+from gpu_worker.anomaly import (
+    AnomalyRiskLevel,
+    BotFarmAnomalyDetector,
+    BotFarmDetectionConfig,
+    BotFarmEvent,
+    BotFarmFinding,
+    BotFarmReport,
+)
 from gpu_worker.batch import BatchAnalyzer
 from gpu_worker.config import EngineBackend, GPUConfig, WorkerConfig
 from gpu_worker.models import (
@@ -16,8 +24,14 @@ from gpu_worker.worker import GPUAnalysisWorker
 __all__ = [
     "AnalysisRequest",
     "AnalysisResult",
+    "AnomalyRiskLevel",
     "AsyncUciBridge",
     "BatchAnalyzer",
+    "BotFarmAnomalyDetector",
+    "BotFarmDetectionConfig",
+    "BotFarmEvent",
+    "BotFarmFinding",
+    "BotFarmReport",
     "EngineBackend",
     "GPUAnalysisWorker",
     "GPUConfig",

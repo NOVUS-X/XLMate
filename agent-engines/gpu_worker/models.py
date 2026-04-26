@@ -18,6 +18,10 @@ class AnalysisRequest(BaseModel):
     search_moves: list[str] | None = None
     num_pv: int = Field(default=1, ge=1)
     priority: int = 0
+    actor_id: str | None = None
+    session_id: str | None = None
+    ip_hash: str | None = None
+    device_hash: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @field_validator("fen")
@@ -31,6 +35,16 @@ class AnalysisRequest(BaseModel):
         except ValueError as exc:
             raise ValueError(f"invalid FEN: {exc}") from exc
         return normalized
+
+    @field_validator("actor_id", "session_id", "ip_hash", "device_hash")
+    @classmethod
+    def normalize_optional_identifier(cls, value: str | None) -> str | None:
+        """Normalize optional telemetry identifiers."""
+
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
 
 
 class AnalysisResult(BaseModel):
