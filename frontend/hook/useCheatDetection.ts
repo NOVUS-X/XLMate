@@ -64,6 +64,11 @@ export function useCheatDetection(
     useState<HeuristicResult>(EMPTY_RESULT);
   const lastAnalysisRef = useRef<number>(0);
 
+  const colorMap =
+    playerColor === "white"
+      ? { player: "w" as const, opponent: "b" as const }
+      : { player: "b" as const, opponent: "w" as const };
+
   const runAnalysis = useCallback(() => {
     const now = Date.now();
     // Throttle: run at most once every 2 seconds
@@ -71,13 +76,9 @@ export function useCheatDetection(
     lastAnalysisRef.current = now;
 
     const engine = engineRef.current;
-    const colorMap =
-      playerColor === "white"
-        ? { player: "w" as const, opponent: "b" as const }
-        : { player: "b" as const, opponent: "w" as const };
     setOpponentAnalysis(engine.analyse(colorMap.opponent));
     setPlayerAnalysis(engine.analyse(colorMap.player));
-  }, [playerColor]);
+  }, [colorMap]);
 
   const recordMove = useCallback(
     (
@@ -107,9 +108,8 @@ export function useCheatDetection(
 
   // Clean up on unmount
   useEffect(() => {
-    const engine = engineRef.current;
     return () => {
-      engine.reset();
+      engineRef.current.reset();
     };
   }, []);
 
