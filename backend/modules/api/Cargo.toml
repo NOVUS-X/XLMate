@@ -40,6 +40,11 @@ st_core = { path = "../st_core", features = ["api"] }
 # For Redis Pub/Sub in WebSocket
 redis = { version = "0.24", features = ["tokio-comp", "json"] }
 
+# For Prometheus metrics
+prometheus = "0.13"
+actix-web-prom = "0.7"
+once_cell = "1.19"
+
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
 actix-rt = "2.9"

@@ -9,12 +9,13 @@ use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
 use actix_web::error::ErrorUnauthorized;
 use serde_json::{Value, json};
 use uuid::Uuid;
+use std::sync::Arc;
+use crate::metrics::{increment_ws_connections, decrement_ws_connections, Metrics};
 
 // For Redis Pub/Sub
 use redis::AsyncCommands;
 use redis::aio::ConnectionManager;
 use tokio::task::JoinHandle;
-use std::sync::Arc;
 
 /// Core WebSocket message types
 #[derive(Message, Serialize, Clone, Debug, PartialEq)]
@@ -150,6 +151,9 @@ impl Actor for WsSession {
         self.hb(ctx);
         let addr = ctx.address().recipient();
         self.lobby.do_send(Connect { game_id: self.game_id.clone(), addr });
+        
+        // Track WebSocket connection
+        increment_ws_connections();
 
         // If Redis connection is available, subscribe to match channel
         if let Some(redis_conn) = self.redis_conn.clone() {
@@ -177,6 +181,9 @@ impl Actor for WsSession {
 
     fn stopped(&mut self, ctx: &mut Self::Context) {
         log::info!("WebSocket disconnected for game: {}", self.game_id);
+        
+        // Track WebSocket disconnection
+        decrement_ws_connections();
         
         // Send reconnection token to client for seamless reconnection
         if let Ok(reconnect_token) = self.generate_reconnect_token() {
