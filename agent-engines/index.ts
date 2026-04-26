@@ -2,8 +2,12 @@ import { SecurityGuard } from "./security_guard";
 import { JobQueue } from "./job_queue";
 import { trackActivity, checkUser } from "./anomaly_service";
 import { DashboardService } from "./monitoring/dashboard_service";
+import { OrchestratorService, NodeInfo } from "./orchestrator_service";
+import { PersonalityService, PersonalityTraits } from "./personality_service";
 
 const guard = new SecurityGuard();
+const orchestrator = new OrchestratorService();
+const personality = new PersonalityService();
 
 export function processPrompt(input: string) {
   if (!guard.validatePrompt(input)) {
@@ -32,20 +36,25 @@ export function runAIAnalysis(payload: any) {
 }
 
 
-export function handleUserAction(userId: string, action: string) {
-  trackActivity(userId, action);
+export function handleUserAction(userId: string, action: string, metadata?: any) {
+  trackActivity(userId, action, metadata);
 
   const analysis = checkUser(userId);
 
   if (analysis.isBot) {
     return {
       blocked: true,
+      riskLevel: analysis.riskLevel,
+      score: analysis.score,
       reasons: analysis.reasons,
+      findings: analysis.findings,
     };
   }
 
   return {
     blocked: false,
+    riskLevel: analysis.riskLevel,
+    score: analysis.score,
   };
 }
 
@@ -63,4 +72,24 @@ export function trackAIRequest(duration: number, success: boolean) {
 
 export function getAIHealthDashboard() {
   return dashboard.getDashboard();
+}
+
+export function registerOrchestratorNode(node: NodeInfo) {
+  orchestrator.registerNode(node);
+}
+
+export function getClusterHealth() {
+  return orchestrator.getClusterState();
+}
+
+export async function dispatchAITask(taskId: string, payload: any) {
+  return orchestrator.dispatchTask(taskId, payload);
+}
+
+export async function startPersonalityTraining(agentId: string, traits: PersonalityTraits) {
+  return personality.startTraining(agentId, traits);
+}
+
+export function getTrainingStatus(jobId: string) {
+  return personality.getJobStatus(jobId);
 }
