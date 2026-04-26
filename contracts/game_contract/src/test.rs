@@ -2,7 +2,7 @@
 extern crate std;
 
 use super::*;
-use soroban_sdk::token::{StellarAssetClient, TokenClient};
+use soroban_sdk::token::StellarAssetClient;
 use soroban_sdk::{Address, Bytes, Env, Map, Vec, testutils::Address as _};
 
 /// Helper: seed a completed game directly into contract storage, bypassing
@@ -220,10 +220,13 @@ fn test_set_max_stake() {
 
     // Initialize game contract with token
     let admin = Address::generate(&env);
+    let treasury_addr = Address::generate(&env);
     client.initialize_token(&admin, &token_address);
+    let admin_key = Bytes::from_slice(&env, &[0u8; 32]);
+    client.initialize_puzzle_rewards(&admin, &admin_key, &0i128, &0u32, &treasury_addr);
 
     // Set limit to 500
-    client.set_max_stake(&500);
+    client.set_max_stake(&admin, &500);
 
     // Try to create game with 600
     let res = client.try_create_game(&player1, &600);
@@ -232,6 +235,23 @@ fn test_set_max_stake() {
     // Try to create game with 500
     let game_id_res = client.try_create_game(&player1, &500);
     assert!(game_id_res.is_ok());
+}
+
+#[test]
+fn test_set_max_stake_rejects_non_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, GameContract);
+    let client = GameContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    let treasury_addr = Address::generate(&env);
+    let admin_key = Bytes::from_slice(&env, &[0u8; 32]);
+
+    client.initialize_puzzle_rewards(&admin, &admin_key, &0i128, &0u32, &treasury_addr);
+    let res = client.try_set_max_stake(&attacker, &1_000i128);
+    assert!(res.is_err());
 }
 
 #[test]
