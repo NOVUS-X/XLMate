@@ -3,9 +3,11 @@ import { JobQueue } from "./job_queue";
 import { trackActivity, checkUser } from "./anomaly_service";
 import { DashboardService } from "./monitoring/dashboard_service";
 import { OrchestratorService, NodeInfo } from "./orchestrator_service";
+import { PersonalityService, PersonalityTraits } from "./personality_service";
 
 const guard = new SecurityGuard();
 const orchestrator = new OrchestratorService();
+const personality = new PersonalityService();
 
 export function processPrompt(input: string) {
   if (!guard.validatePrompt(input)) {
@@ -77,4 +79,12 @@ export function getClusterHealth() {
 
 export async function dispatchAITask(taskId: string, payload: any) {
   return orchestrator.dispatchTask(taskId, payload);
+}
+
+export async function startPersonalityTraining(agentId: string, traits: PersonalityTraits) {
+  return personality.startTraining(agentId, traits);
+}
+
+export function getTrainingStatus(jobId: string) {
+  return personality.getJobStatus(jobId);
 }
