@@ -79,3 +79,13 @@ class WorkerInfo(BaseModel):
     gpu_utilization_pct: float = 0.0
     analyses_completed: int = 0
     uptime_seconds: float = 0.0
+
+
+class NodeInfo(BaseModel):
+    """Information about an orchestrator node in the decentralized cluster."""
+
+    node_id: str
+    address: str
+    status: str = "online"
+    load: float = 0.0  # Average load across local workers
+    last_seen: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

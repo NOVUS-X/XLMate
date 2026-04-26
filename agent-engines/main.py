@@ -1,29 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
+import uuid
+from datetime import datetime, timezone
+from enum import Enum
+from dataclasses import dataclass, field, asdict
+from typing import Dict, Any, List, Optional
 
 from gpu_worker.config import WorkerConfig
 from gpu_worker.pool import WorkerPool
-
-
-async def main() -> None:
-    """Start the GPU analysis worker pool and wait until interrupted."""
-
-    config = WorkerConfig()
-    pool = WorkerPool([config])
-    await pool.start_all()
-    print("GPU Analysis Worker Pool started")
-    try:
-        await asyncio.Event().wait()
-    except (KeyboardInterrupt, asyncio.CancelledError):
-        await pool.shutdown_all()
-        print("Worker pool shut down")
-import json
-import logging
-import asyncio
-from typing import Dict, Any, List, Optional
-from enum import Enum
-from dataclasses import dataclass, field, asdict
+from gpu_worker.decentralized_orchestrator import DecentralizedOrchestrator
+from gpu_worker.models import AnalysisRequest, AnalysisResult, NodeInfo
 
 # Configure logging with a professional format
 logging.basicConfig(
@@ -56,12 +45,23 @@ class EngineConfig:
 class AgentEngineOrchestrator:
     """
     Manages the lifecycle and deployment of AI co-pilot engines for XLMate.
-    Focuses on efficient CPU/Memory allocation and concurrent pipeline execution.
+    Utilizes DecentralizedOrchestrator for multi-node coordination.
     """
     
-    def __init__(self):
+    def __init__(self, node_id: Optional[str] = None):
+        self.config = WorkerConfig()
+        self.pool = WorkerPool([self.config])
+        self.decentralized = DecentralizedOrchestrator(self.pool, node_id=node_id)
         self._active_engines: Dict[str, Dict[str, Any]] = {}
         self._pipelines: Dict[str, DeploymentStatus] = {}
+
+    async def start(self):
+        """Start the orchestrator services."""
+        await self.decentralized.start()
+
+    async def shutdown(self):
+        """Shutdown the orchestrator services."""
+        await self.decentralized.shutdown()
 
     async def provision_engine(self, agent_id: str, config: EngineConfig) -> bool:
         """
@@ -104,21 +104,40 @@ class AgentEngineOrchestrator:
         """
         Returns the current state of the orchestrator or a specific agent.
         """
+        cluster_state = self.decentralized.get_cluster_state()
+        
         if agent_id:
             return {
                 "agent_id": agent_id,
                 "pipeline_status": self._pipelines.get(agent_id, "unknown").value if agent_id in self._pipelines else "unknown",
-                "engine_data": self._active_engines.get(agent_id)
+                "engine_data": self._active_engines.get(agent_id),
+                "cluster_info": [asdict(n) for n in cluster_state]
             }
         
         return {
+            "node_id": self.decentralized.node_id,
             "active_count": len(self._active_engines),
             "agents": list(self._active_engines.keys()),
-            "pipelines": {k: v.value for k, v in self._pipelines.items()}
+            "pipelines": {k: v.value for k, v in self._pipelines.items()},
+            "cluster_nodes": len(cluster_state)
         }
 
-async def run_demonstration():
+async def main() -> None:
+    """Start the decentralized agent engine orchestrator."""
     orchestrator = AgentEngineOrchestrator()
+    await orchestrator.start()
+    
+    logger.info(f"Decentralized Engine Orchestrator started on node {orchestrator.decentralized.node_id}")
+    
+    try:
+        await asyncio.Event().wait()
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        await orchestrator.shutdown()
+        logger.info("Orchestrator shut down")
+
+async def run_demonstration():
+    orchestrator = AgentEngineOrchestrator(node_id="demo-node")
+    await orchestrator.start()
     
     # Define a high-performance configuration
     pro_config = EngineConfig(
@@ -137,7 +156,12 @@ async def run_demonstration():
 
     print("\n--- Final Orchestration State ---")
     print(json.dumps(orchestrator.get_orchestration_state(), indent=2))
+    
+    await orchestrator.shutdown()
 
 if __name__ == "__main__":
-    asyncio.run(main())
-    asyncio.run(run_demonstration())
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "--demo":
+        asyncio.run(run_demonstration())
+    else:
+        asyncio.run(main())
