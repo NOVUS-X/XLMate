@@ -36,20 +36,25 @@ export function runAIAnalysis(payload: any) {
 }
 
 
-export function handleUserAction(userId: string, action: string) {
-  trackActivity(userId, action);
+export function handleUserAction(userId: string, action: string, metadata?: any) {
+  trackActivity(userId, action, metadata);
 
   const analysis = checkUser(userId);
 
   if (analysis.isBot) {
     return {
       blocked: true,
+      riskLevel: analysis.riskLevel,
+      score: analysis.score,
       reasons: analysis.reasons,
+      findings: analysis.findings,
     };
   }
 
   return {
     blocked: false,
+    riskLevel: analysis.riskLevel,
+    score: analysis.score,
   };
 }
 
