@@ -1,4 +1,4 @@
-use prometheus::{Registry, Counter, Gauge, Histogram, HistogramOpts, Opts, Encoder, TextEncoder};
+use prometheus::{Registry, CounterVec, Gauge, Histogram, HistogramOpts, Opts, Encoder, TextEncoder};
 use std::sync::Arc;
 use once_cell::sync::{Lazy, OnceCell};
 use actix_web::{HttpResponse, web};
@@ -8,6 +8,9 @@ static REGISTRY: Lazy<Registry> = Lazy::new(|| Registry::new());
 
 /// Global metrics instance
 static GLOBAL_METRICS: OnceCell<Arc<Metrics>> = OnceCell::new();
+
+/// Track if metrics have been registered to prevent duplicate registrations
+static METRICS_REGISTERED: OnceCell<bool> = OnceCell::new();
 
 /// Custom metrics for XLMate backend
 pub struct Metrics {
@@ -24,13 +27,13 @@ pub struct Metrics {
     pub matchmaking_queue_size: Gauge,
     
     /// Total AI requests (labeled by type: suggestion, analysis)
-    pub ai_requests_total: Counter,
+    pub ai_requests_total: CounterVec,
     
     /// Total authentication events (labeled by type and success status)
-    pub auth_events_total: Counter,
+    pub auth_events_total: CounterVec,
     
     /// Total game events (labeled by type: created, completed, abandoned)
-    pub game_events_total: Counter,
+    pub game_events_total: CounterVec,
 }
 
 impl Metrics {
@@ -59,35 +62,41 @@ impl Metrics {
             "Number of players waiting in matchmaking queue"
         ).expect("Failed to create matchmaking_queue_size gauge");
         
-        let ai_requests_total = Counter::with_opts(
+        let ai_requests_total = CounterVec::new(
             Opts::new(
                 "xlmate_ai_requests_total",
                 "Total number of AI requests"
-            )
+            ),
+            &["request_type"]
         ).expect("Failed to create ai_requests_total counter");
         
-        let auth_events_total = Counter::with_opts(
+        let auth_events_total = CounterVec::new(
             Opts::new(
                 "xlmate_auth_events_total",
                 "Total number of authentication events"
-            )
+            ),
+            &["event_type", "success"]
         ).expect("Failed to create auth_events_total counter");
         
-        let game_events_total = Counter::with_opts(
+        let game_events_total = CounterVec::new(
             Opts::new(
                 "xlmate_game_events_total",
                 "Total number of game events"
-            )
+            ),
+            &["event_type"]
         ).expect("Failed to create game_events_total counter");
         
-        // Register all metrics
-        REGISTRY.register(Box::new(active_games.clone())).expect("Failed to register active_games");
-        REGISTRY.register(Box::new(ws_connections.clone())).expect("Failed to register ws_connections");
-        REGISTRY.register(Box::new(db_query_duration.clone())).expect("Failed to register db_query_duration");
-        REGISTRY.register(Box::new(matchmaking_queue_size.clone())).expect("Failed to register matchmaking_queue_size");
-        REGISTRY.register(Box::new(ai_requests_total.clone())).expect("Failed to register ai_requests_total");
-        REGISTRY.register(Box::new(auth_events_total.clone())).expect("Failed to register auth_events_total");
-        REGISTRY.register(Box::new(game_events_total.clone())).expect("Failed to register game_events_total");
+        // Register all metrics (only once)
+        METRICS_REGISTERED.get_or_init(|| {
+            REGISTRY.register(Box::new(active_games.clone())).expect("Failed to register active_games");
+            REGISTRY.register(Box::new(ws_connections.clone())).expect("Failed to register ws_connections");
+            REGISTRY.register(Box::new(db_query_duration.clone())).expect("Failed to register db_query_duration");
+            REGISTRY.register(Box::new(matchmaking_queue_size.clone())).expect("Failed to register matchmaking_queue_size");
+            REGISTRY.register(Box::new(ai_requests_total.clone())).expect("Failed to register ai_requests_total");
+            REGISTRY.register(Box::new(auth_events_total.clone())).expect("Failed to register auth_events_total");
+            REGISTRY.register(Box::new(game_events_total.clone())).expect("Failed to register game_events_total");
+            true
+        });
         
         Metrics {
             active_games,
@@ -106,11 +115,11 @@ impl Metrics {
     }
 }
 
-/// Initialize metrics and return shared instance
+/// Initialize metrics and return shared instance (idempotent)
 pub fn init_metrics() -> Arc<Metrics> {
-    let metrics = Arc::new(Metrics::new());
-    GLOBAL_METRICS.set(metrics.clone()).expect("Failed to set global metrics");
-    metrics
+    GLOBAL_METRICS.get_or_init(|| {
+        Arc::new(Metrics::new())
+    }).clone()
 }
 
 /// Get global metrics instance
@@ -184,21 +193,27 @@ pub fn decrement_matchmaking_queue() {
 /// Increment AI requests counter
 pub fn increment_ai_requests(request_type: &str) {
     if let Some(metrics) = get_global_metrics() {
-        metrics.ai_requests_total.inc();
+        metrics.ai_requests_total
+            .with_label_values(&[request_type])
+            .inc();
     }
 }
 
 /// Increment authentication events counter
 pub fn increment_auth_events(event_type: &str, success: bool) {
     if let Some(metrics) = get_global_metrics() {
-        metrics.auth_events_total.inc();
+        metrics.auth_events_total
+            .with_label_values(&[event_type, if success { "true" } else { "false" }])
+            .inc();
     }
 }
 
 /// Increment game events counter
 pub fn increment_game_events(event_type: &str) {
     if let Some(metrics) = get_global_metrics() {
-        metrics.game_events_total.inc();
+        metrics.game_events_total
+            .with_label_values(&[event_type])
+            .inc();
     }
 }
 

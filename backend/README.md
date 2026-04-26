@@ -334,6 +334,10 @@ The backend exposes metrics at two endpoints:
 Start the full monitoring stack with Docker Compose:
 
 ```bash
+# Set Grafana admin password (required)
+export GRAFANA_ADMIN_PASSWORD=your_secure_password
+
+# Start all services
 docker-compose up -d
 ```
 
@@ -348,7 +352,7 @@ This will start:
 - **Prometheus**: http://localhost:9090
 - **Grafana**: http://localhost:3000
   - Username: `admin`
-  - Password: `admin`
+  - Password: Value of `GRAFANA_ADMIN_PASSWORD` environment variable
 - **Metrics Endpoint**: http://localhost:8080/metrics
 
 ### Grafana Dashboards
