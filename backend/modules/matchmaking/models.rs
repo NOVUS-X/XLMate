@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::time::Duration;
 use uuid::Uuid;
 use chrono::{DateTime, Utc};
@@ -72,4 +71,39 @@ pub struct MatchmakingResponse {
     pub status: String,
     pub match_id: Option<Uuid>,
     pub request_id: Uuid,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_match_type_redis_key() {
+        assert_eq!(MatchType::Rated.redis_key(), "matchmaking:queue:rated");
+        assert_eq!(MatchType::Casual.redis_key(), "matchmaking:queue:casual");
+        assert_eq!(MatchType::Private.redis_key(), "matchmaking:invites");
+    }
+
+    #[test]
+    fn test_match_request_serialization() {
+        let player = Player {
+            wallet_address: "test_addr".to_string(),
+            elo: 1500,
+            join_time: Utc::now(),
+        };
+        let req = MatchRequest {
+            id: Uuid::new_v4(),
+            player,
+            match_type: MatchType::Rated,
+            invite_address: None,
+            max_elo_diff: Some(100),
+        };
+        
+        let json = req.to_redis_value().expect("Should serialize");
+        let deserialized = MatchRequest::from_redis_value(&json).expect("Should deserialize");
+        
+        assert_eq!(req.id, deserialized.id);
+        assert_eq!(req.match_type, deserialized.match_type);
+        assert_eq!(req.max_elo_diff, deserialized.max_elo_diff);
+    }
 }

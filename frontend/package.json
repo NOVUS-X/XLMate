@@ -29,6 +29,7 @@
     "recharts": "^3.8.1",
     "soroban-client": "^0.1.0",
     "stellar-sdk": "10.4.0",
+    "stockfish.js": "^10.0.2",
     "tailwind-merge": "^3.0.2",
     "tailwindcss-animate": "^1.0.7",
     "tw-animate-css": "^1.2.4"

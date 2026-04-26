@@ -18,7 +18,7 @@ interface UseMatchmakingReturn {
   gameId: string | null;
   playerColor: "white" | "black" | null;
   error: string | null;
-  joinMatchmaking: (aiPersonality?: string) => void;
+  joinMatchmaking: (matchType?: "Rated" | "Casual") => void;
   cancelMatchmaking: () => void;
   sendMove: (from: string, to: string, promotion?: string) => void;
   lastOpponentMove: { from: string; to: string; promotion?: string } | null;
@@ -84,22 +84,29 @@ export function useMatchmaking(): UseMatchmakingReturn {
     };
   }, [status]);
 
-  const joinMatchmaking = useCallback(async (aiPersonality?: string) => {
+  const joinMatchmaking = useCallback(async (matchType: "Rated" | "Casual" = "Casual") => {
     setStatus("searching");
     setError(null);
 
     try {
+      const wallet_address = "TEST_WALLET_" + Math.random().toString(36).substring(7);
+
       // POST to join matchmaking queue, receive a session token
       const res = await fetch(`${API_BASE}/v1/matchmaking/join`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ai_personality: aiPersonality ?? "aggressive" }),
+        body: JSON.stringify({ 
+          wallet_address,
+          elo: 1200,
+          match_type: matchType 
+        }),
         credentials: "include",
       });
 
       if (!res.ok) throw new Error(`Matchmaking failed: ${res.status}`);
 
-      const { sessionId } = await res.json();
+      const json = await res.json();
+      const sessionId = json.request_id || json.sessionId;
       sessionIdRef.current = sessionId;
 
       // Open WebSocket to listen for match_found event

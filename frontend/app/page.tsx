@@ -17,6 +17,13 @@ const AiPersonalityModal = dynamic(
     })),
   { ssr: false },
 );
+const MatchmakingModal = dynamic(
+  () =>
+    import("@/app/components/matchmaking/MatchmakingModal").then((m) => ({
+      default: m.MatchmakingModal,
+    })),
+  { ssr: false },
+);
 import { FaUser } from "react-icons/fa";
 import { RiAliensFill } from "react-icons/ri";
 import { useChessSocket } from "@/hook/useChessSocket";
@@ -24,6 +31,7 @@ import { useMatchmaking } from "@/hook/useMatchmaking";
 import { useRouter } from "next/navigation";
 import { useMatchmakingContext } from "@/context/matchmakingContext";
 import { Web3StatusBar } from "@/components/Web3StatusBar";
+import useStockfishWASM from "@/components/chess/StockfishWASM";
 
 export default function Home() {
   const [game] = useState(new Chess());
@@ -36,6 +44,8 @@ export default function Home() {
   const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
   const PLAYER_COUNT_ENDPOINT = `${API_BASE}/v1/players/online`;
   const [isPersonalityModalOpen, setIsPersonalityModalOpen] = useState(false);
+  const [isMatchmakingModalOpen, setIsMatchmakingModalOpen] = useState(false);
+  const [botAnalysis, setBotAnalysis] = useState<any>(null);
 
   const { aiPersonality } = useMatchmakingContext();
 
@@ -56,6 +66,10 @@ export default function Home() {
     disconnect: disconnectSocket,
     reconnect: reconnectSocket,
   } = useChessSocket(gameId);
+
+  const { analyzePosition, isReady: stockfishReady } = useStockfishWASM({
+    jsBridgePath: "/assets/stockfish.js",
+  });
 
   // Choose which sendMove to use based on game state
   const sendMove = useCallback(
@@ -122,11 +136,40 @@ export default function Home() {
     }
   }, [lastOpponentMove, game]);
 
+  // Bot logic
+  useEffect(() => {
+    let active = true;
+    const playBotMove = async () => {
+      if (gameMode === "bot" && game.turn() === "b" && !game.isGameOver()) {
+        try {
+          let depth = 10;
+          if (aiPersonality === "aggressive") depth = 15;
+          if (aiPersonality === "defensive") depth = 18;
+          
+          const result = await analyzePosition(game.fen(), depth);
+          if (active && result.bestMove) {
+            setBotAnalysis(result);
+            const from = result.bestMove.substring(0, 2);
+            const to = result.bestMove.substring(2, 4);
+            const promotion = result.bestMove.length > 4 ? result.bestMove.substring(4, 5) : undefined;
+            game.move({ from, to, promotion });
+            setPosition(game.fen());
+          }
+        } catch (e) {
+          console.error("Bot failed to move:", e);
+        }
+      }
+    };
+    playBotMove();
+    return () => { active = false; };
+  }, [position, gameMode, analyzePosition, aiPersonality, game]);
+
   const isMyTurn =
-    gameMode !== "online" ||
-    (socketStatus === "connected" &&
-      ((playerColor === "white" && game.turn() === "w") ||
-        (playerColor === "black" && game.turn() === "b")));
+    (gameMode === "bot" ? game.turn() === "w" : true) &&
+    (gameMode !== "online" ||
+      (socketStatus === "connected" &&
+        ((playerColor === "white" && game.turn() === "w") ||
+          (playerColor === "black" && game.turn() === "b"))));
 
   const handleMove = useCallback(({
     sourceSquare,
@@ -145,6 +188,7 @@ export default function Home() {
       });
       if (move === null) return false;
 
+      setBotAnalysis(null);
       requestAnimationFrame(() => setPosition(game.fen()));
 
       // Forward move to server in online mode
@@ -170,7 +214,9 @@ export default function Home() {
 
   const handleSetGameMode = (mode: "online" | "bot" | null) => {
     if (mode === "online") {
-      // Show personality selection before joining the queue
+      setGameMode(mode);
+      setIsMatchmakingModalOpen(true);
+    } else if (mode === "bot") {
       setGameMode(mode);
       setIsPersonalityModalOpen(true);
     } else {
@@ -178,9 +224,20 @@ export default function Home() {
     }
   };
 
+  const handleMatchmakingConfirm = (type: "Rated" | "Casual") => {
+    setIsMatchmakingModalOpen(false);
+    joinMatchmaking(type);
+  };
+
+  const handleMatchmakingClose = () => {
+    setIsMatchmakingModalOpen(false);
+    setGameMode(null);
+  };
+
   const handlePersonalityConfirm = () => {
     setIsPersonalityModalOpen(false);
-    joinMatchmaking(aiPersonality);
+    game.reset();
+    setPosition("start");
   };
 
   const handlePersonalityClose = () => {
@@ -226,9 +283,17 @@ export default function Home() {
                   <h2 className="text-xl font-bold text-white tracking-wide">
                     {gameMode === "online"
                       ? onlineStatusLabel()
-                      : "Playing vs Bot"}
+                      : `Bot: ${aiPersonality}`}
                   </h2>
                 </div>
+
+                {gameMode === "bot" && botAnalysis && (
+                  <div className="flex items-center gap-4 text-xs font-mono text-teal-400">
+                    <span>Eval: {botAnalysis.evaluation > 0 ? "+" : ""}{botAnalysis.evaluation?.toFixed(2)}</span>
+                    <span className="opacity-50">|</span>
+                    <span>Depth: {botAnalysis.depth}</span>
+                  </div>
+                )}
 
                 <button
                   onClick={handleExit}
@@ -295,6 +360,13 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {/* Matchmaking Selection Modal */}
+      <MatchmakingModal
+        isOpen={isMatchmakingModalOpen}
+        onClose={handleMatchmakingClose}
+        onConfirm={handleMatchmakingConfirm}
+      />
 
       {/* AI Personality Selection Modal */}
       <AiPersonalityModal
