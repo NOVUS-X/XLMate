@@ -89,3 +89,35 @@ class NodeInfo(BaseModel):
     status: str = "online"
     load: float = 0.0  # Average load across local workers
     last_seen: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class PersonalityTraits(BaseModel):
+    """Quantitative traits defining an agent's playing and interaction style."""
+
+    aggressiveness: float = Field(default=0.5, ge=0.0, le=1.0)
+    positional_style: float = Field(default=0.5, ge=0.0, le=1.0)
+    risk_tolerance: float = Field(default=0.5, ge=0.0, le=1.0)
+    tone: str = "neutral"  # neutral, aggressive, humorous, formal
+
+
+class TrainingStatus(str, Enum):
+    """Status of a personality training job."""
+
+    QUEUED = "queued"
+    TRAINING = "training"
+    VALIDATING = "validating"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class TrainingJob(BaseModel):
+    """Metadata and status for an agent personality training session."""
+
+    job_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    agent_id: str
+    target_traits: PersonalityTraits
+    status: TrainingStatus = TrainingStatus.QUEUED
+    progress: float = 0.0  # 0.0 to 100.0
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    node_id: str | None = None  # Node where training is occurring
