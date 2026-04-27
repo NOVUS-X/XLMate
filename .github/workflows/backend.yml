@@ -50,6 +50,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-build-target-
 
+      - name: Check st_core module
+        working-directory: backend
+        run: cargo check -p st_core
+
+      - name: Test st_core module
+        working-directory: backend
+        run: cargo test -p st_core
+
       - name: Check pairing module
         working-directory: backend
         run: cargo check -p pairing
