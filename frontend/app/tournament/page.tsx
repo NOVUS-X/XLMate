@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { FaPlus, FaSpinner } from "react-icons/fa";
 import type { TournamentBracket, BracketFormat } from "@/components/tournament/BracketView";
@@ -29,11 +29,7 @@ export default function TournamentPage() {
   const [format, setFormat] = useState<BracketFormat>("SingleElimination");
   const [creating, setCreating] = useState(false);
 
-  useEffect(() => {
-    fetchBrackets();
-  }, []);
-
-  async function fetchBrackets() {
+  const fetchBrackets = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -47,7 +43,11 @@ export default function TournamentPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [selected]);
+
+  useEffect(() => {
+    void fetchBrackets();
+  }, [fetchBrackets]);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();

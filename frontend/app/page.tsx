@@ -31,7 +31,7 @@ import { useMatchmaking } from "@/hook/useMatchmaking";
 import { useRouter } from "next/navigation";
 import { useMatchmakingContext } from "@/context/matchmakingContext";
 import { Web3StatusBar } from "@/components/Web3StatusBar";
-import useStockfishWASM from "@/components/chess/StockfishWASM";
+import useStockfishWASM, { type AnalysisResult } from "@/components/chess/StockfishWASM";
 
 export default function Home() {
   const [game] = useState(new Chess());
@@ -45,7 +45,7 @@ export default function Home() {
   const PLAYER_COUNT_ENDPOINT = `${API_BASE}/v1/players/online`;
   const [isPersonalityModalOpen, setIsPersonalityModalOpen] = useState(false);
   const [isMatchmakingModalOpen, setIsMatchmakingModalOpen] = useState(false);
-  const [botAnalysis, setBotAnalysis] = useState<any>(null);
+  const [botAnalysis, setBotAnalysis] = useState<AnalysisResult | null>(null);
 
   const { aiPersonality } = useMatchmakingContext();
 
