@@ -58,6 +58,14 @@ jobs:
         working-directory: backend
         run: cargo test -p st_core
 
+      - name: Check pairing module
+        working-directory: backend
+        run: cargo check -p pairing
+
+      - name: Test pairing module
+        working-directory: backend
+        run: cargo test -p pairing
+
       - name: Check metrics module
         working-directory: backend
         run: cargo check -p metrics

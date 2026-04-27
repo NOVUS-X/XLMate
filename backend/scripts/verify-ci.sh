@@ -43,6 +43,7 @@ check_workspace() {
     fi
 }
 
+check_workspace "pairing"
 check_workspace "metrics"
 check_workspace "validation"
 check_workspace "archiving"
@@ -62,6 +63,7 @@ check_cargo_toml() {
     fi
 }
 
+check_cargo_toml "pairing"
 check_cargo_toml "metrics"
 check_cargo_toml "validation"
 check_cargo_toml "archiving"
@@ -80,6 +82,7 @@ check_source_file() {
     fi
 }
 
+check_source_file "modules/pairing/src/lib.rs"
 check_source_file "modules/metrics/src/lib.rs"
 check_source_file "modules/validation/src/lib.rs"
 check_source_file "modules/archiving/src/lib.rs"
@@ -134,10 +137,11 @@ test_module() {
     fi
 }
 
-test_module "metrics"
-test_module "tournament"
-test_module "validation"
-test_module "archiving"
+check_module "pairing"
+check_module "metrics"
+check_module "tournament"
+check_module "validation"
+check_module "archiving"
 
 echo ""
 echo "🔗 Running integration tests..."
