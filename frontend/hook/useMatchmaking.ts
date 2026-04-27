@@ -18,7 +18,7 @@ interface UseMatchmakingReturn {
   gameId: string | null;
   playerColor: "white" | "black" | null;
   error: string | null;
-  joinMatchmaking: (matchType?: "Rated" | "Casual") => void;
+  joinMatchmaking: (matchType?: "Rated" | "Casual") => Promise<void>;
   cancelMatchmaking: () => void;
   sendMove: (from: string, to: string, promotion?: string) => void;
   lastOpponentMove: { from: string; to: string; promotion?: string } | null;
@@ -89,17 +89,12 @@ export function useMatchmaking(): UseMatchmakingReturn {
     setError(null);
 
     try {
-      const wallet_address = "TEST_WALLET_" + Math.random().toString(36).substring(7);
-
-      // POST to join matchmaking queue, receive a session token
+      // wallet_address and elo are resolved server-side from the authenticated session.
+      // The server reads the JWT cookie (credentials: "include") to identify the player.
       const res = await fetch(`${API_BASE}/v1/matchmaking/join`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          wallet_address,
-          elo: 1200,
-          match_type: matchType 
-        }),
+        body: JSON.stringify({ match_type: matchType }),
         credentials: "include",
       });
 
@@ -140,7 +135,7 @@ export function useMatchmaking(): UseMatchmakingReturn {
 
       ws.onclose = () => {
         if (status === "searching") {
-          // closed without match — either cancelled or error
+          // closed without match — either cancelled or server timeout
         }
       };
     } catch (err) {
@@ -149,14 +144,14 @@ export function useMatchmaking(): UseMatchmakingReturn {
     }
   }, [openGameSocket, status]);
 
-  const cancelMatchmaking = useCallback(async () => {
+  const cancelMatchmaking = useCallback(() => {
     cleanup();
     if (sessionIdRef.current) {
-      // Best-effort cancel; ignore errors
-      fetch(`${API_BASE}/v1/matchmaking/leave`, {
+      // Best-effort cancel; use the correct /cancel endpoint with request_id
+      fetch(`${API_BASE}/v1/matchmaking/cancel`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId: sessionIdRef.current }),
+        body: JSON.stringify({ request_id: sessionIdRef.current }),
         credentials: "include",
       }).catch(() => {});
       sessionIdRef.current = null;

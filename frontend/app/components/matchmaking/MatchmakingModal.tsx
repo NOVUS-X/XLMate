@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import { FaTrophy, FaGamepad } from "react-icons/fa";
 
 interface MatchmakingModalProps {
@@ -14,12 +14,61 @@ export function MatchmakingModal({
   onClose,
   onConfirm,
 }: MatchmakingModalProps) {
+  const firstButtonRef = useRef<HTMLButtonElement>(null);
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Close on Escape and trap focus inside the modal
+  useEffect(() => {
+    if (!isOpen) return;
+
+    firstButtonRef.current?.focus();
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+
+      // Focus trap: cycle Tab between modal focusable elements
+      if (e.key === "Tab") {
+        const focusable = [firstButtonRef.current, cancelButtonRef.current].filter(
+          Boolean
+        ) as HTMLButtonElement[];
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-overlay-in">
+    <div
+      className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-overlay-in"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="matchmaking-modal-title"
+    >
       <div className="bg-gray-900/90 border border-teal-500/30 rounded-3xl p-8 max-w-md w-full shadow-[0_0_50px_rgba(20,184,166,0.15)] animate-modal-in">
-        <h2 className="text-3xl font-extrabold text-white mb-2 tracking-tight text-center bg-gradient-to-r from-teal-400 to-blue-500 bg-clip-text text-transparent">
+        <h2
+          id="matchmaking-modal-title"
+          className="text-3xl font-extrabold text-white mb-2 tracking-tight text-center bg-gradient-to-r from-teal-400 to-blue-500 bg-clip-text text-transparent"
+        >
           Select Match Type
         </h2>
         <p className="text-gray-400 text-center mb-8 text-sm uppercase tracking-widest font-medium">
@@ -28,6 +77,7 @@ export function MatchmakingModal({
 
         <div className="grid gap-4">
           <button
+            ref={firstButtonRef}
             onClick={() => onConfirm("Rated")}
             className="group relative flex items-center gap-6 p-5 rounded-2xl bg-gradient-to-br from-teal-500/10 to-blue-500/10 border border-teal-500/20 hover:border-teal-400/50 hover:bg-teal-500/20 transition-all duration-300 text-left"
           >
@@ -59,6 +109,7 @@ export function MatchmakingModal({
         </div>
 
         <button
+          ref={cancelButtonRef}
           onClick={onClose}
           className="mt-8 w-full py-3 rounded-xl text-gray-500 hover:text-white transition-colors font-medium text-sm"
         >

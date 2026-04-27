@@ -22,20 +22,20 @@ impl MatchType {
 }
 
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Player {
     pub wallet_address: String,
     pub elo: u32,
-    pub join_time: DateTime<Utc>, 
+    pub join_time: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MatchRequest {
     pub id: Uuid,
     pub player: Player,
     pub match_type: MatchType,
-    pub invite_address: Option<String>, // For private matches__
-    pub max_elo_diff: Option<u32>,      // For rated matches__
+    pub invite_address: Option<String>,
+    pub max_elo_diff: Option<u32>,
 }
 
 impl MatchRequest {
@@ -55,7 +55,7 @@ pub struct Match {
     pub player1: Player,
     pub player2: Player,
     pub match_type: MatchType,
-    pub created_at: DateTime<Utc>, 
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,11 +85,12 @@ mod tests {
     }
 
     #[test]
-    fn test_match_request_serialization() {
+    fn test_match_request_round_trip() {
+        let join_time = Utc::now();
         let player = Player {
-            wallet_address: "test_addr".to_string(),
+            wallet_address: "GABC1234567890ABCDEF".to_string(),
             elo: 1500,
-            join_time: Utc::now(),
+            join_time,
         };
         let req = MatchRequest {
             id: Uuid::new_v4(),
@@ -98,12 +99,51 @@ mod tests {
             invite_address: None,
             max_elo_diff: Some(100),
         };
-        
+
         let json = req.to_redis_value().expect("Should serialize");
         let deserialized = MatchRequest::from_redis_value(&json).expect("Should deserialize");
-        
-        assert_eq!(req.id, deserialized.id);
-        assert_eq!(req.match_type, deserialized.match_type);
-        assert_eq!(req.max_elo_diff, deserialized.max_elo_diff);
+
+        // Full structural equality — verifies every field survives the round-trip
+        assert_eq!(req, deserialized);
+    }
+
+    #[test]
+    fn test_match_request_with_invite_address_round_trip() {
+        let req = MatchRequest {
+            id: Uuid::new_v4(),
+            player: Player {
+                wallet_address: "GXYZ987".to_string(),
+                elo: 1200,
+                join_time: Utc::now(),
+            },
+            match_type: MatchType::Private,
+            invite_address: Some("GINVITEE123".to_string()),
+            max_elo_diff: None,
+        };
+
+        let json = req.to_redis_value().expect("Should serialize");
+        let deserialized = MatchRequest::from_redis_value(&json).expect("Should deserialize");
+
+        assert_eq!(req, deserialized);
+    }
+
+    #[test]
+    fn test_casual_match_request_round_trip() {
+        let req = MatchRequest {
+            id: Uuid::new_v4(),
+            player: Player {
+                wallet_address: "GCASUAL999".to_string(),
+                elo: 800,
+                join_time: Utc::now(),
+            },
+            match_type: MatchType::Casual,
+            invite_address: None,
+            max_elo_diff: None,
+        };
+
+        let json = req.to_redis_value().expect("Should serialize");
+        let deserialized = MatchRequest::from_redis_value(&json).expect("Should deserialize");
+
+        assert_eq!(req, deserialized);
     }
 }
