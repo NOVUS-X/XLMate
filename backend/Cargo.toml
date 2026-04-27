@@ -15,6 +15,10 @@ members = [
     "modules/matchmaking",
     "modules/engine",
     "modules/st_core",
+    "modules/metrics",
+    "modules/validation",
+    "modules/archiving",
+    "modules/integration_tests",
 ]
 
 [workspace.dependencies]
