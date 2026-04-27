@@ -108,6 +108,29 @@ const ARBITRATOR: Symbol = symbol_short!("ARBIT"); // Address - dispute arbitrat
 // Game timeout mechanism
 const TIMEOUT_DURATION: Symbol = symbol_short!("T_OUT"); // u64 - ledger sequences before timeout
 
+// SEP-10 challenge verification (#529)
+const SEP10_CHALLENGES: Symbol = symbol_short!("S10_CHAL"); // Map<BytesN<32>, u64> nonce → expiry
+const SEP10_VERIFIED: Symbol = symbol_short!("S10_VER"); // Map<Address, bool>
+
+// Multi-sig fee control (#535)
+const MULTISIG_SIGNERS: Symbol = symbol_short!("MS_SIGN"); // Vec<Address>
+const MULTISIG_THRESHOLD: Symbol = symbol_short!("MS_THRES"); // u32
+const PENDING_FEE_PROPOSAL: Symbol = symbol_short!("MS_PROP"); // Option<FeeProposal>
+const FEE_PROPOSAL_APPROVALS: Symbol = symbol_short!("MS_APPR"); // Map<Address, bool>
+
+// ────────────────────────────────────────────────────────────────────────────
+// Multi-sig fee proposal type (#535)
+// ────────────────────────────────────────────────────────────────────────────
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct FeeProposal {
+    pub new_fee_bips: u32,
+    pub new_treasury_address: Address,
+    pub proposed_at: u64, // ledger sequence
+    pub proposer: Address,
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Errors
 // ────────────────────────────────────────────────────────────────────────────
@@ -149,6 +172,20 @@ pub enum ContractError {
     AlreadySettled = 23,
     /// Amount value must be positive and within supported bounds
     InvalidAmount = 24,
+    /// SEP-10 challenge has expired or is invalid (#529)
+    ChallengeExpired = 25,
+    /// SEP-10 challenge nonce already used (#529)
+    ChallengeAlreadyUsed = 26,
+    /// Address has not completed SEP-10 verification (#529)
+    NotVerified = 27,
+    /// Multi-sig: signer is not in the signers list (#535)
+    NotASigner = 28,
+    /// Multi-sig: no pending fee proposal to approve (#535)
+    NoProposal = 29,
+    /// Multi-sig: signer already approved this proposal (#535)
+    AlreadyApproved = 30,
+    /// Multi-sig: threshold must be ≥ 1 and ≤ number of signers (#535)
+    InvalidThreshold = 31,
 }
 
 #[contract]
@@ -1395,6 +1432,376 @@ impl GameContract {
         disputes
             .get(dispute_id)
             .ok_or(ContractError::DisputeNotFound)
+    }
+
+    // ── SEP-10 Challenge Verification (#529) ──────────────────────────────────
+    //
+    // SEP-10 is the Stellar Web Authentication standard. The flow:
+    //   1. Backend calls `issue_sep10_challenge` to store a nonce with an expiry.
+    //   2. The user signs the challenge with their Stellar keypair off-chain.
+    //   3. The user calls `verify_sep10_challenge` with the nonce + ED25519 sig.
+    //   4. On success the address is marked as verified in contract storage.
+    //
+    // The challenge payload is: SHA256( address_bytes || nonce_le8 || expiry_le8 )
+    // This matches the backend signing convention used in claim_puzzle_reward.
+
+    /// Issue a SEP-10 challenge for `account`.
+    ///
+    /// * `nonce`  – 32-byte random value (must be unique per challenge)
+    /// * `expiry` – ledger sequence after which the challenge is invalid
+    ///
+    /// Only the contract admin may issue challenges (prevents spam).
+    pub fn issue_sep10_challenge(
+        env: Env,
+        admin: Address,
+        account: Address,
+        nonce: BytesN<32>,
+        expiry: u64,
+    ) -> Result<(), ContractError> {
+        let current_admin: Address = env
+            .storage()
+            .instance()
+            .get(&CONTRACT_ADMIN)
+            .expect("Not initialized");
+        current_admin.require_auth();
+        if admin != current_admin {
+            return Err(ContractError::Unauthorized);
+        }
+
+        let current_ledger = env.ledger().sequence() as u64;
+        if expiry <= current_ledger {
+            return Err(ContractError::ChallengeExpired);
+        }
+
+        let mut challenges: Map<BytesN<32>, u64> = env
+            .storage()
+            .instance()
+            .get(&SEP10_CHALLENGES)
+            .unwrap_or(Map::new(&env));
+
+        // Reject if nonce already exists (replay protection)
+        if challenges.get(nonce.clone()).is_some() {
+            return Err(ContractError::ChallengeAlreadyUsed);
+        }
+
+        challenges.set(nonce.clone(), expiry);
+        env.storage().instance().set(&SEP10_CHALLENGES, &challenges);
+
+        env.events().publish(
+            (symbol_short!("sep10"), symbol_short!("issued")),
+            (account, nonce),
+        );
+
+        Ok(())
+    }
+
+    /// Verify a SEP-10 challenge.
+    ///
+    /// The caller provides the `nonce` and an ED25519 `signature` over
+    /// SHA256( address_bytes || nonce_bytes || expiry_le8 ).
+    ///
+    /// On success the challenge is consumed and `account` is marked verified.
+    pub fn verify_sep10_challenge(
+        env: Env,
+        account: Address,
+        nonce: BytesN<32>,
+        signature: BytesN<64>,
+    ) -> Result<(), ContractError> {
+        // 1. Load and validate the challenge
+        let mut challenges: Map<BytesN<32>, u64> = env
+            .storage()
+            .instance()
+            .get(&SEP10_CHALLENGES)
+            .unwrap_or(Map::new(&env));
+
+        let expiry = challenges
+            .get(nonce.clone())
+            .ok_or(ContractError::ChallengeAlreadyUsed)?;
+
+        let current_ledger = env.ledger().sequence() as u64;
+        if current_ledger > expiry {
+            return Err(ContractError::ChallengeExpired);
+        }
+
+        // 2. Load admin ED25519 public key (same key used for puzzle rewards)
+        let admin_key_bytes: Bytes = env
+            .storage()
+            .instance()
+            .get(&ADMIN_KEY)
+            .expect("Not initialized");
+        let admin_pubkey: BytesN<32> = admin_key_bytes
+            .try_into()
+            .expect("Admin public key must be 32 bytes");
+
+        // 3. Build canonical payload: address_bytes || nonce_bytes || expiry_le8
+        let mut payload = Bytes::new(&env);
+
+        let account_str = account.clone().to_string();
+        let str_len = account_str.len() as usize;
+        let mut addr_buf = [0u8; 64];
+        account_str.copy_into_slice(&mut addr_buf[..str_len]);
+        payload.append(&Bytes::from_slice(&env, &addr_buf[..str_len]));
+
+        let nonce_bytes: Bytes = nonce.clone().into();
+        payload.append(&nonce_bytes);
+
+        let expiry_le: [u8; 8] = expiry.to_le_bytes();
+        payload.append(&Bytes::from_slice(&env, &expiry_le));
+
+        // 4. Verify — panics on invalid signature (Soroban convention)
+        let digest: BytesN<32> = env.crypto().sha256(&payload).into();
+        let digest_bytes: Bytes = digest.into();
+        env.crypto()
+            .ed25519_verify(&admin_pubkey, &digest_bytes, &signature);
+
+        // 5. Consume the challenge (prevent replay)
+        challenges.remove(nonce.clone());
+        env.storage().instance().set(&SEP10_CHALLENGES, &challenges);
+
+        // 6. Mark account as verified
+        let mut verified: Map<Address, bool> = env
+            .storage()
+            .instance()
+            .get(&SEP10_VERIFIED)
+            .unwrap_or(Map::new(&env));
+        verified.set(account.clone(), true);
+        env.storage().instance().set(&SEP10_VERIFIED, &verified);
+
+        env.events().publish(
+            (symbol_short!("sep10"), symbol_short!("verified")),
+            account,
+        );
+
+        Ok(())
+    }
+
+    /// Returns true if `account` has completed SEP-10 verification.
+    pub fn is_sep10_verified(env: Env, account: Address) -> bool {
+        let verified: Map<Address, bool> = env
+            .storage()
+            .instance()
+            .get(&SEP10_VERIFIED)
+            .unwrap_or(Map::new(&env));
+        verified.get(account).unwrap_or(false)
+    }
+
+    // ── Multi-Sig Fee Control (#535) ──────────────────────────────────────────
+    //
+    // Protocol fee parameters (fee_bips + treasury_address) are sensitive.
+    // This module requires M-of-N approval from a configured signer set before
+    // any fee change takes effect.
+    //
+    // Flow:
+    //   1. Admin calls `configure_multisig` to set signers + threshold.
+    //   2. Any signer calls `propose_fee_change` to create a pending proposal.
+    //   3. Each signer calls `approve_fee_proposal` to vote.
+    //   4. Once approvals ≥ threshold the fee change is applied automatically.
+    //   5. Any signer can call `cancel_fee_proposal` to discard the proposal.
+
+    /// Configure the multi-sig signer set and approval threshold.
+    ///
+    /// Can only be called by the contract admin.
+    /// `threshold` must be ≥ 1 and ≤ `signers.len()`.
+    pub fn configure_multisig(
+        env: Env,
+        admin: Address,
+        signers: Vec<Address>,
+        threshold: u32,
+    ) -> Result<(), ContractError> {
+        let current_admin: Address = env
+            .storage()
+            .instance()
+            .get(&CONTRACT_ADMIN)
+            .expect("Not initialized");
+        current_admin.require_auth();
+        if admin != current_admin {
+            return Err(ContractError::Unauthorized);
+        }
+
+        let n = signers.len();
+        if threshold == 0 || threshold > n {
+            return Err(ContractError::InvalidThreshold);
+        }
+
+        env.storage().instance().set(&MULTISIG_SIGNERS, &signers);
+        env.storage().instance().set(&MULTISIG_THRESHOLD, &threshold);
+
+        Ok(())
+    }
+
+    /// Propose a new fee configuration.
+    ///
+    /// Replaces any existing pending proposal. The proposer's approval is
+    /// counted automatically.
+    pub fn propose_fee_change(
+        env: Env,
+        proposer: Address,
+        new_fee_bips: u32,
+        new_treasury_address: Address,
+    ) -> Result<(), ContractError> {
+        if new_fee_bips > 1000 {
+            return Err(ContractError::InvalidAmount);
+        }
+
+        let signers: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&MULTISIG_SIGNERS)
+            .ok_or(ContractError::Unauthorized)?;
+
+        // Verify proposer is a signer
+        if !signers.contains(&proposer) {
+            return Err(ContractError::NotASigner);
+        }
+
+        proposer.require_auth();
+
+        let proposal = FeeProposal {
+            new_fee_bips,
+            new_treasury_address,
+            proposed_at: env.ledger().sequence() as u64,
+            proposer: proposer.clone(),
+        };
+
+        env.storage()
+            .instance()
+            .set(&PENDING_FEE_PROPOSAL, &proposal);
+
+        // Reset approvals and auto-approve for proposer
+        let mut approvals: Map<Address, bool> = Map::new(&env);
+        approvals.set(proposer.clone(), true);
+        env.storage()
+            .instance()
+            .set(&FEE_PROPOSAL_APPROVALS, &approvals);
+
+        env.events().publish(
+            (symbol_short!("multisig"), symbol_short!("proposed")),
+            proposer,
+        );
+
+        Ok(())
+    }
+
+    /// Approve the pending fee proposal.
+    ///
+    /// When approvals reach the threshold the fee change is applied immediately.
+    pub fn approve_fee_proposal(env: Env, signer: Address) -> Result<bool, ContractError> {
+        let signers: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&MULTISIG_SIGNERS)
+            .ok_or(ContractError::Unauthorized)?;
+
+        if !signers.contains(&signer) {
+            return Err(ContractError::NotASigner);
+        }
+
+        let proposal: FeeProposal = env
+            .storage()
+            .instance()
+            .get(&PENDING_FEE_PROPOSAL)
+            .ok_or(ContractError::NoProposal)?;
+
+        signer.require_auth();
+
+        let mut approvals: Map<Address, bool> = env
+            .storage()
+            .instance()
+            .get(&FEE_PROPOSAL_APPROVALS)
+            .unwrap_or(Map::new(&env));
+
+        if approvals.get(signer.clone()).unwrap_or(false) {
+            return Err(ContractError::AlreadyApproved);
+        }
+
+        approvals.set(signer.clone(), true);
+        env.storage()
+            .instance()
+            .set(&FEE_PROPOSAL_APPROVALS, &approvals);
+
+        // Count approvals
+        let approval_count = approvals.len();
+        let threshold: u32 = env
+            .storage()
+            .instance()
+            .get(&MULTISIG_THRESHOLD)
+            .unwrap_or(u32::MAX);
+
+        if approval_count >= threshold {
+            // Apply the fee change
+            env.storage()
+                .instance()
+                .set(&FEE_BIPS, &proposal.new_fee_bips);
+            env.storage()
+                .instance()
+                .set(&TREASURY_ADDR, &proposal.new_treasury_address);
+
+            // Clear proposal and approvals
+            env.storage().instance().remove(&PENDING_FEE_PROPOSAL);
+            env.storage().instance().remove(&FEE_PROPOSAL_APPROVALS);
+
+            env.events().publish(
+                (symbol_short!("multisig"), symbol_short!("executed")),
+                proposal.new_fee_bips,
+            );
+
+            return Ok(true); // proposal executed
+        }
+
+        env.events().publish(
+            (symbol_short!("multisig"), symbol_short!("approved")),
+            signer,
+        );
+
+        Ok(false) // still waiting for more approvals
+    }
+
+    /// Cancel the pending fee proposal (any signer may cancel).
+    pub fn cancel_fee_proposal(env: Env, signer: Address) -> Result<(), ContractError> {
+        let signers: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&MULTISIG_SIGNERS)
+            .ok_or(ContractError::Unauthorized)?;
+
+        if !signers.contains(&signer) {
+            return Err(ContractError::NotASigner);
+        }
+
+        if !env
+            .storage()
+            .instance()
+            .has(&PENDING_FEE_PROPOSAL)
+        {
+            return Err(ContractError::NoProposal);
+        }
+
+        signer.require_auth();
+
+        env.storage().instance().remove(&PENDING_FEE_PROPOSAL);
+        env.storage().instance().remove(&FEE_PROPOSAL_APPROVALS);
+
+        env.events().publish(
+            (symbol_short!("multisig"), symbol_short!("cancel")),
+            signer,
+        );
+
+        Ok(())
+    }
+
+    /// Query the pending fee proposal (if any).
+    pub fn get_fee_proposal(env: Env) -> Option<FeeProposal> {
+        env.storage().instance().get(&PENDING_FEE_PROPOSAL)
+    }
+
+    /// Query how many signers have approved the pending proposal.
+    pub fn get_approval_count(env: Env) -> u32 {
+        let approvals: Map<Address, bool> = env
+            .storage()
+            .instance()
+            .get(&FEE_PROPOSAL_APPROVALS)
+            .unwrap_or(Map::new(&env));
+        approvals.len()
     }
 }
 
