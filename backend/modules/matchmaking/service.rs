@@ -2,6 +2,7 @@ use actix_web::web;
 use chrono::Utc;
 use deadpool_redis::Pool;
 use redis::AsyncCommands;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use uuid::Uuid;
