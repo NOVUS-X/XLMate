@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from enum import Enum
 import uuid
+from typing import Optional, List
 
 import chess
 from pydantic import BaseModel, Field, field_validator
@@ -13,15 +14,15 @@ class AnalysisRequest(BaseModel):
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     fen: str
-    depth: int | None = Field(default=None, ge=1)
-    time_limit_ms: int | None = Field(default=None, ge=1)
-    search_moves: list[str] | None = None
+    depth: Optional[int] = Field(default=None, ge=1)
+    time_limit_ms: Optional[int] = Field(default=None, ge=1)
+    search_moves: Optional[List[str]] = None
     num_pv: int = Field(default=1, ge=1)
     priority: int = 0
-    actor_id: str | None = None
-    session_id: str | None = None
-    ip_hash: str | None = None
-    device_hash: str | None = None
+    actor_id: Optional[str] = None
+    session_id: Optional[str] = None
+    ip_hash: Optional[str] = None
+    device_hash: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @field_validator("fen")
@@ -38,7 +39,7 @@ class AnalysisRequest(BaseModel):
 
     @field_validator("actor_id", "session_id", "ip_hash", "device_hash")
     @classmethod
-    def normalize_optional_identifier(cls, value: str | None) -> str | None:
+    def normalize_optional_identifier(cls, value: Optional[str]) -> Optional[str]:
         """Normalize optional telemetry identifiers."""
 
         if value is None:
@@ -52,12 +53,12 @@ class AnalysisResult(BaseModel):
 
     request_id: str
     best_move: str
-    evaluation: float | None = None
-    depth: int | None = None
-    principal_variation: list[str] = Field(default_factory=list)
-    nodes_searched: int | None = None
-    time_ms: int | None = None
-    gpu_utilization: float | None = None
+    evaluation: Optional[float] = None
+    depth: Optional[int] = None
+    principal_variation: List[str] = Field(default_factory=list)
+    nodes_searched: Optional[int] = None
+    time_ms: Optional[int] = None
+    gpu_utilization: Optional[float] = None
 
 
 class WorkerStatus(str, Enum):
@@ -118,6 +119,6 @@ class TrainingJob(BaseModel):
     target_traits: PersonalityTraits
     status: TrainingStatus = TrainingStatus.QUEUED
     progress: float = 0.0  # 0.0 to 100.0
-    started_at: datetime | None = None
-    completed_at: datetime | None = None
-    node_id: str | None = None  # Node where training is occurring
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    node_id: Optional[str] = None  # Node where training is occurring
