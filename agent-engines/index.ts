@@ -70,6 +70,15 @@ export function trackAIRequest(duration: number, success: boolean) {
   }
 }
 
+// Background resource sampling
+setInterval(() => {
+  const mem = process.memoryUsage();
+  // Simplified CPU metric for health analysis
+  const cpu = process.cpuUsage();
+  const totalCpu = (cpu.user + cpu.system) / 1000000; // seconds
+  dashboard.recordResources(totalCpu % 100, mem.heapUsed / (1024 * 1024));
+}, 5000);
+
 export function getAIHealthDashboard() {
   return dashboard.getDashboard();
 }
