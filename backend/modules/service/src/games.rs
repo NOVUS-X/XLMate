@@ -170,20 +170,74 @@ impl GameService {
         cursor: Option<String>,
         limit: u64,
         player_id: Option<Uuid>,
+        opponent_id: Option<Uuid>,
+        variant: Option<String>,
+        result_side: Option<String>,
+        from_date: Option<DateTime<Utc>>,
+        to_date: Option<DateTime<Utc>>,
         status: Option<GameStatus>,
     ) -> Result<(Vec<game::Model>, Option<String>), DbErr> {
         let mut query = Game::find();
 
         // 1. Apply Filtering
         if let Some(pid) = player_id {
-            // Filter by player (white OR black)
-            // effective union of indexes logic would be nice, but OR is simpler to write here.
-            // "idx_games_white_player_created_at_id" and "idx_games_black_player_created_at_id"
-            // Postgres creates a BitmapOr for these two indexes usually.
+            if let Some(oid) = opponent_id {
+                // Filter by head-to-head (me vs opponent OR opponent vs me)
+                let condition = Condition::any()
+                    .add(
+                        Condition::all()
+                            .add(game::Column::WhitePlayer.eq(pid))
+                            .add(game::Column::BlackPlayer.eq(oid))
+                    )
+                    .add(
+                        Condition::all()
+                            .add(game::Column::WhitePlayer.eq(oid))
+                            .add(game::Column::BlackPlayer.eq(pid))
+                    );
+                query = query.filter(condition);
+            } else {
+                // Filter by player (white OR black)
+                let condition = Condition::any()
+                    .add(game::Column::WhitePlayer.eq(pid))
+                    .add(game::Column::BlackPlayer.eq(pid));
+                query = query.filter(condition);
+            }
+        } else if let Some(oid) = opponent_id {
+            // Filter by opponent only (either white or black)
             let condition = Condition::any()
-                .add(game::Column::WhitePlayer.eq(pid))
-                .add(game::Column::BlackPlayer.eq(pid));
+                .add(game::Column::WhitePlayer.eq(oid))
+                .add(game::Column::BlackPlayer.eq(oid));
             query = query.filter(condition);
+        }
+
+        if let Some(v) = variant {
+            // Map variant string to enum
+            let v_enum = match v.as_str() {
+                "chess960" => db_entity::game::GameVariant::Chess960,
+                "three-check" => db_entity::game::GameVariant::ThreeCheck,
+                _ => db_entity::game::GameVariant::Standard,
+            };
+            query = query.filter(game::Column::Variant.eq(v_enum));
+        }
+
+        if let Some(r) = result_side {
+            // Map result string to enum
+            let r_enum = match r.as_str() {
+                "white_wins" => db_entity::game::ResultSide::WhiteWins,
+                "black_wins" => db_entity::game::ResultSide::BlackWins,
+                "draw" => db_entity::game::ResultSide::Draw,
+                "abandoned" => db_entity::game::ResultSide::Abandoned,
+                _ => db_entity::game::ResultSide::Ongoing,
+            };
+            query = query.filter(game::Column::Result.eq(r_enum));
+        }
+
+        if let Some(from) = from_date {
+            query = query.filter(game::Column::CreatedAt.gte(from));
+        }
+
+        if let Some(to) = to_date {
+            query = query.filter(game::Column::CreatedAt.lte(to));
         }
 
         if let Some(s) = status {
@@ -345,7 +399,12 @@ mod tests {
             None,
             10,
             Some(player_id),
-            None
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
         ).await;
         
         // Get transaction log to verify SQL
@@ -397,7 +456,12 @@ mod tests {
             Some(cursor),
             10,
             None,
-            None
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
         ).await;
         
         let transaction_log = db.into_transaction_log();

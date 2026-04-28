@@ -208,11 +208,19 @@ pub async fn list_games(
     let limit  = query.limit.unwrap_or(10);
     let cursor = query.cursor.clone();
 
+    // Map result_side string to enum if needed, or pass as string for service to handle.
+    // For simplicity, we pass Option<String> filters to service.
+
     match GameService::list_games(
         db.get_ref(),
         cursor,
         limit,
         query.player_id,
+        query.opponent_id,
+        query.variant.clone(),
+        query.result_side.clone(),
+        query.from_date,
+        query.to_date,
         status_enum,
     )
     .await
