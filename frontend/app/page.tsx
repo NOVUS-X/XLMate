@@ -31,7 +31,8 @@ import { useMatchmaking } from "@/hook/useMatchmaking";
 import { useRouter } from "next/navigation";
 import { useMatchmakingContext } from "@/context/matchmakingContext";
 import { Web3StatusBar } from "@/components/Web3StatusBar";
-import useStockfishWASM, { type AnalysisResult } from "@/components/chess/StockfishWASM";
+import { ChessVariantSelector } from "@/components/ChessVariantSelector";
+import { getChessVariantById } from "@/lib/chessVariants";
 
 export default function Home() {
   const [game] = useState(new Chess());
@@ -47,7 +48,9 @@ export default function Home() {
   const [isMatchmakingModalOpen, setIsMatchmakingModalOpen] = useState(false);
   const [botAnalysis, setBotAnalysis] = useState<AnalysisResult | null>(null);
 
-  const { aiPersonality } = useMatchmakingContext();
+  const { aiPersonality, chessVariant, setChessVariant } =
+    useMatchmakingContext();
+  const selectedVariant = getChessVariantById(chessVariant);
 
   const {
     status: matchmakingStatus,
@@ -281,11 +284,16 @@ export default function Home() {
                       <RiAliensFill className="text-2xl text-white filter drop-shadow-md" />
                     )}
                   </div>
-                  <h2 className="text-xl font-bold text-white tracking-wide">
-                    {gameMode === "online"
-                      ? onlineStatusLabel()
-                      : `Bot: ${aiPersonality}`}
-                  </h2>
+                  <div>
+                    <h2 className="text-xl font-bold text-white tracking-wide">
+                      {gameMode === "online"
+                        ? onlineStatusLabel()
+                        : "Playing vs Bot"}
+                    </h2>
+                    <p className="mt-1 text-sm text-cyan-100/80">
+                      Variant: {selectedVariant.label} / {selectedVariant.averageGameTime}
+                    </p>
+                  </div>
                 </div>
 
                 {gameMode === "bot" && botAnalysis && (
@@ -319,6 +327,9 @@ export default function Home() {
 
                     <p className="text-gray-300 text-sm" aria-live="polite">
                       {onlinePlayerCount} Players online
+                    </p>
+                    <p className="text-cyan-100 text-xs uppercase tracking-[0.24em]">
+                      Queueing for {selectedVariant.label}
                     </p>
 
                     <button
@@ -357,7 +368,15 @@ export default function Home() {
 
           {/* Game Modes Section */}
           <div className="flex flex-col justify-center space-y-6 max-w-[500px] w-full order-1 md:order-2" role="region" aria-label="Game mode selection">
-            {!gameMode && <GameModeButtons setGameMode={handleSetGameMode} />}
+            {!gameMode && (
+              <>
+                <GameModeButtons setGameMode={handleSetGameMode} />
+                <ChessVariantSelector
+                  selectedVariant={chessVariant}
+                  onSelect={setChessVariant}
+                />
+              </>
+            )}
           </div>
         </div>
       </div>
