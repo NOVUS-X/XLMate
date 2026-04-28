@@ -614,3 +614,154 @@ fn test_multisig_invalid_threshold_rejected() {
     let res2 = client.try_configure_multisig(&admin, &signers, &0u32);
     assert!(res2.is_err());
 }
+
+// ── Issue #534: Move Sequence Unit Tests ──────────────────────────────────────
+
+fn setup_in_progress_game<'a>(
+    env: &'a Env,
+    contract_id: &'a Address,
+) -> (GameContractClient<'a>, Address, Address, u64) {
+    let client = GameContractClient::new(env, contract_id);
+    let admin = Address::generate(env);
+    let issuer = Address::generate(env);
+    let player1 = Address::generate(env);
+    let player2 = Address::generate(env);
+    let treasury_addr = Address::generate(env);
+
+    let stellar_token = env.register_stellar_asset_contract_v2(issuer);
+    let token_address = stellar_token.address();
+    let stellar_asset_client = StellarAssetClient::new(env, &token_address);
+
+    client.initialize_token(&admin, &token_address);
+    client.initialize_puzzle_rewards(
+        &admin,
+        &Bytes::from_slice(env, &[0u8; 32]),
+        &0i128,
+        &0u32,
+        &treasury_addr,
+    );
+
+    let wager = 100;
+    stellar_asset_client.mint(&player1, &wager);
+    stellar_asset_client.mint(&player2, &wager);
+
+    let game_id = client.create_game(&player1, &wager);
+    client.join_game(&game_id, &player2);
+
+    (client, player1, player2, game_id)
+}
+
+#[test]
+fn test_submit_move_normal() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, GameContract);
+    let (client, player1, _player2, game_id) = setup_in_progress_game(&env, &contract_id);
+
+    let move_data = Vec::from_array(&env, [1u32, 2u32, 3u32]);
+    client.submit_move(&game_id, &player1, &move_data);
+
+    let game = client.get_game(&game_id);
+    assert_eq!(game.moves.len(), 1);
+    assert_eq!(game.current_turn, 2);
+}
+
+#[test]
+fn test_submit_move_wrong_turn() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, GameContract);
+    let (client, _player1, player2, game_id) = setup_in_progress_game(&env, &contract_id);
+
+    let move_data = Vec::from_array(&env, [1u32, 2u32]);
+    let res = client.try_submit_move(&game_id, &player2, &move_data);
+    assert_eq!(res, Err(Ok(ContractError::NotYourTurn)));
+}
+
+#[test]
+fn test_submit_move_not_a_player() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, GameContract);
+    let (client, _player1, _player2, game_id) = setup_in_progress_game(&env, &contract_id);
+
+    let outsider = Address::generate(&env);
+    let move_data = Vec::from_array(&env, [1u32, 2u32]);
+    let res = client.try_submit_move(&game_id, &outsider, &move_data);
+    assert_eq!(res, Err(Ok(ContractError::NotPlayer)));
+}
+
+#[test]
+fn test_submit_move_empty_move_data() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, GameContract);
+    let (client, player1, _player2, game_id) = setup_in_progress_game(&env, &contract_id);
+
+    let empty_move: Vec<u32> = Vec::new(&env);
+    let res = client.try_submit_move(&game_id, &player1, &empty_move);
+    assert_eq!(res, Err(Ok(ContractError::InvalidMove)));
+}
+
+#[test]
+fn test_submit_move_game_not_in_progress() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, GameContract);
+    let client = GameContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let player1 = Address::generate(&env);
+    let treasury_addr = Address::generate(&env);
+
+    let stellar_token = env.register_stellar_asset_contract_v2(issuer);
+    let token_address = stellar_token.address();
+    let stellar_asset_client = StellarAssetClient::new(&env, &token_address);
+
+    client.initialize_token(&admin, &token_address);
+    client.initialize_puzzle_rewards(
+        &admin,
+        &Bytes::from_slice(&env, &[0u8; 32]),
+        &0i128,
+        &0u32,
+        &treasury_addr,
+    );
+
+    let wager = 100;
+    stellar_asset_client.mint(&player1, &wager);
+    let game_id = client.create_game(&player1, &wager);
+
+    let move_data = Vec::from_array(&env, [1u32, 2u32]);
+    let res = client.try_submit_move(&game_id, &player1, &move_data);
+    assert_eq!(res, Err(Ok(ContractError::GameNotInProgress)));
+}
+
+#[test]
+fn test_submit_move_sequence_alternation() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, GameContract);
+    let (client, player1, player2, game_id) = setup_in_progress_game(&env, &contract_id);
+
+    client.submit_move(&game_id, &player1, &Vec::from_array(&env, [1u32]));
+    client.submit_move(&game_id, &player2, &Vec::from_array(&env, [2u32]));
+    client.submit_move(&game_id, &player1, &Vec::from_array(&env, [3u32]));
+    client.submit_move(&game_id, &player2, &Vec::from_array(&env, [4u32]));
+
+    let game = client.get_game(&game_id);
+    assert_eq!(game.moves.len(), 4);
+    assert_eq!(game.current_turn, 1);
+}
+
+#[test]
+fn test_submit_move_player1_cannot_move_twice() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, GameContract);
+    let (client, player1, _player2, game_id) = setup_in_progress_game(&env, &contract_id);
+
+    client.submit_move(&game_id, &player1, &Vec::from_array(&env, [1u32]));
+    let res = client.try_submit_move(&game_id, &player1, &Vec::from_array(&env, [2u32]));
+    assert_eq!(res, Err(Ok(ContractError::NotYourTurn)));
+}

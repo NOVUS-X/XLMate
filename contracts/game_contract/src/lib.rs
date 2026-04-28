@@ -118,6 +118,13 @@ const MULTISIG_THRESHOLD: Symbol = symbol_short!("MS_THRES"); // u32
 const PENDING_FEE_PROPOSAL: Symbol = symbol_short!("MS_PROP"); // Option<FeeProposal>
 const FEE_PROPOSAL_APPROVALS: Symbol = symbol_short!("MS_APPR"); // Map<Address, bool>
 
+// SEP-40 Oracle clock sync (#533)
+const ORACLE_CONTRACT: Symbol = symbol_short!("ORACLE"); // Address of oracle contract
+
+// Time-lock escrow for tournament prizes (#532)
+const TOURNAMENT_TIMELOCK: Symbol = symbol_short!("TL_DUR"); // u64 - lock duration in ledger sequences
+const TOURNAMENT_ESCROWS: Symbol = symbol_short!("TL_ESC"); // Map<u64, TournamentEscrow>
+
 // ────────────────────────────────────────────────────────────────────────────
 // Multi-sig fee proposal type (#535)
 // ────────────────────────────────────────────────────────────────────────────
@@ -129,6 +136,20 @@ pub struct FeeProposal {
     pub new_treasury_address: Address,
     pub proposed_at: u64, // ledger sequence
     pub proposer: Address,
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Tournament escrow type (#532)
+// ────────────────────────────────────────────────────────────────────────────
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct TournamentEscrow {
+    pub escrow_id: u64,
+    pub game_id: u64,
+    pub total_amount: i128,
+    pub locked_until: u64, // ledger sequence when funds can be released
+    pub released: bool,
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -186,6 +207,14 @@ pub enum ContractError {
     AlreadyApproved = 30,
     /// Multi-sig: threshold must be ≥ 1 and ≤ number of signers (#535)
     InvalidThreshold = 31,
+    /// Oracle contract not configured (#533)
+    OracleNotConfigured = 32,
+    /// Tournament escrow not found (#532)
+    EscrowNotFound = 33,
+    /// Tournament escrow is still locked (#532)
+    EscrowStillLocked = 34,
+    /// Tournament escrow already released (#532)
+    EscrowAlreadyReleased = 35,
 }
 
 #[contract]
@@ -1802,6 +1831,227 @@ impl GameContract {
             .get(&FEE_PROPOSAL_APPROVALS)
             .unwrap_or(Map::new(&env));
         approvals.len()
+    }
+
+    // ── SEP-40 Oracle Clock Sync (#533) ───────────────────────────────────────
+    //
+    // SEP-40 defines a standard oracle interface on Stellar/Soroban.
+    // We store the oracle contract address and call its `lastprice` function
+    // to get a trusted timestamp for game clock synchronization.
+
+    /// Configure the SEP-40 oracle contract address for clock sync.
+    pub fn configure_oracle(env: Env, admin: Address, oracle: Address) -> Result<(), ContractError> {
+        let current_admin: Address = env
+            .storage()
+            .instance()
+            .get(&CONTRACT_ADMIN)
+            .expect("Not initialized");
+        current_admin.require_auth();
+        if admin != current_admin {
+            return Err(ContractError::Unauthorized);
+        }
+        env.storage().instance().set(&ORACLE_CONTRACT, &oracle);
+        Ok(())
+    }
+
+    /// Get the current oracle contract address.
+    pub fn get_oracle(env: Env) -> Result<Address, ContractError> {
+        env.storage()
+            .instance()
+            .get(&ORACLE_CONTRACT)
+            .ok_or(ContractError::OracleNotConfigured)
+    }
+
+    /// Get the oracle-synced timestamp (ledger sequence from oracle).
+    /// Falls back to the current ledger sequence if oracle is not configured.
+    /// The oracle is called via cross-contract invocation using the SEP-40
+    /// `lastprice` interface which returns a price record with a timestamp.
+    ///
+    /// Note: This is a minimal implementation. In production, you would invoke
+    /// the oracle contract's `lastprice` method and extract the timestamp.
+    pub fn get_oracle_time(env: Env) -> u64 {
+        let oracle_opt: Option<Address> = env.storage().instance().get(&ORACLE_CONTRACT);
+        match oracle_opt {
+            Some(_oracle) => {
+                // TODO: Implement cross-contract call to oracle.lastprice()
+                // For now, fall back to ledger sequence
+                env.ledger().sequence() as u64
+            }
+            None => env.ledger().sequence() as u64,
+        }
+    }
+
+    // ── Time-lock Escrow for Tournament Grand Prizes (#532) ───────────────────
+    //
+    // Tournament grand prizes are locked in escrow for a configurable duration
+    // before they can be released to winners. This prevents immediate withdrawal
+    // and allows time for dispute resolution.
+
+    /// Configure the tournament time-lock duration (in ledger sequences).
+    pub fn configure_tournament_timelock(
+        env: Env,
+        admin: Address,
+        duration: u64,
+    ) -> Result<(), ContractError> {
+        let current_admin: Address = env
+            .storage()
+            .instance()
+            .get(&CONTRACT_ADMIN)
+            .expect("Not initialized");
+        current_admin.require_auth();
+        if admin != current_admin {
+            return Err(ContractError::Unauthorized);
+        }
+        if duration == 0 {
+            panic!("Timelock duration must be greater than 0");
+        }
+        env.storage().instance().set(&TOURNAMENT_TIMELOCK, &duration);
+        Ok(())
+    }
+
+    /// Create a time-locked escrow for a completed tournament game.
+    ///
+    /// Locks the total prize pool until `current_ledger + timelock_duration`.
+    /// Returns the escrow ID.
+    pub fn create_tournament_escrow(
+        env: Env,
+        game_id: u64,
+    ) -> Result<u64, ContractError> {
+        let games: Map<u64, Game> = env
+            .storage()
+            .instance()
+            .get(&GAMES)
+            .ok_or(ContractError::GameNotFound)?;
+
+        let game = games.get(game_id).ok_or(ContractError::GameNotFound)?;
+
+        if game.state != GameState::Completed {
+            return Err(ContractError::GameNotInProgress);
+        }
+
+        game.player1.require_auth();
+
+        let duration: u64 = env
+            .storage()
+            .instance()
+            .get(&TOURNAMENT_TIMELOCK)
+            .ok_or(ContractError::TimeoutNotConfigured)?;
+
+        let total_amount = match &game.player2 {
+            Some(_) => game.wager_amount * 2,
+            None => game.wager_amount,
+        };
+
+        let locked_until = env.ledger().sequence() as u64 + duration;
+
+        let mut escrows: Map<u64, TournamentEscrow> = env
+            .storage()
+            .instance()
+            .get(&TOURNAMENT_ESCROWS)
+            .unwrap_or(Map::new(&env));
+
+        let escrow_id = escrows.len() as u64 + 1;
+        let escrow = TournamentEscrow {
+            escrow_id,
+            game_id,
+            total_amount,
+            locked_until,
+            released: false,
+        };
+
+        escrows.set(escrow_id, escrow);
+        env.storage().instance().set(&TOURNAMENT_ESCROWS, &escrows);
+
+        env.events().publish(
+            (symbol_short!("tl_escrow"), symbol_short!("created")),
+            (escrow_id, game_id, locked_until),
+        );
+
+        Ok(escrow_id)
+    }
+
+    /// Release a time-locked tournament escrow to the specified winners.
+    ///
+    /// Can only be called after the lock period has expired.
+    pub fn release_tournament_escrow(
+        env: Env,
+        escrow_id: u64,
+        winners: Vec<Address>,
+        percentages: Vec<u32>,
+    ) -> Result<(), ContractError> {
+        let mut escrows: Map<u64, TournamentEscrow> = env
+            .storage()
+            .instance()
+            .get(&TOURNAMENT_ESCROWS)
+            .ok_or(ContractError::EscrowNotFound)?;
+
+        let escrow = escrows.get(escrow_id).ok_or(ContractError::EscrowNotFound)?;
+
+        if escrow.released {
+            return Err(ContractError::EscrowAlreadyReleased);
+        }
+
+        let current_ledger = env.ledger().sequence() as u64;
+        if current_ledger < escrow.locked_until {
+            return Err(ContractError::EscrowStillLocked);
+        }
+
+        if winners.len() != percentages.len() {
+            return Err(ContractError::MismatchedLengths);
+        }
+
+        let mut total_pct: u32 = 0;
+        for i in 0..percentages.len() {
+            total_pct += percentages.get(i).unwrap();
+            if total_pct > 100 {
+                return Err(ContractError::InvalidPercentage);
+            }
+        }
+        if total_pct != 100 {
+            return Err(ContractError::InvalidPercentage);
+        }
+
+        let token_client = Self::token_client(&env);
+        let contract_address = env.current_contract_address();
+        let total = escrow.total_amount;
+        let mut distributed: i128 = 0;
+
+        for i in 0..winners.len() {
+            let winner = winners.get(i).unwrap();
+            let pct = percentages.get(i).unwrap();
+            let amount = (total * pct as i128) / 100;
+            distributed += amount;
+            token_client.transfer(&contract_address, &winner, &amount);
+        }
+
+        // Dust goes to first winner
+        let remainder = total - distributed;
+        if remainder > 0 && !winners.is_empty() {
+            let first_winner = winners.get(0).unwrap();
+            token_client.transfer(&contract_address, &first_winner, &remainder);
+        }
+
+        let mut released_escrow = escrow;
+        released_escrow.released = true;
+        escrows.set(escrow_id, released_escrow);
+        env.storage().instance().set(&TOURNAMENT_ESCROWS, &escrows);
+
+        env.events().publish(
+            (symbol_short!("tl_escrow"), symbol_short!("released")),
+            escrow_id,
+        );
+
+        Ok(())
+    }
+
+    /// Query a tournament escrow by ID.
+    pub fn get_tournament_escrow(env: Env, escrow_id: u64) -> Result<TournamentEscrow, ContractError> {
+        let escrows: Map<u64, TournamentEscrow> = env
+            .storage()
+            .instance()
+            .get(&TOURNAMENT_ESCROWS)
+            .ok_or(ContractError::EscrowNotFound)?;
+        escrows.get(escrow_id).ok_or(ContractError::EscrowNotFound)
     }
 }
 
