@@ -617,10 +617,10 @@ fn test_multisig_invalid_threshold_rejected() {
 
 // ── Issue #534: Move Sequence Unit Tests ──────────────────────────────────────
 
-fn setup_in_progress_game(
-    env: &Env,
-    contract_id: &Address,
-) -> (GameContractClient, Address, Address, u64) {
+fn setup_in_progress_game<'a>(
+    env: &'a Env,
+    contract_id: &'a Address,
+) -> (GameContractClient<'a>, Address, Address, u64) {
     let client = GameContractClient::new(env, contract_id);
     let admin = Address::generate(env);
     let issuer = Address::generate(env);
