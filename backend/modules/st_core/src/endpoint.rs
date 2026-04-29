@@ -23,15 +23,8 @@ pub struct MintNFTResponse {
     post,
     path = "/api/v1/nft/mint",
     tag = "NFT",
-    description = "Creates a signable XDR transaction for minting an AI agent as an NFT on Stellar network following SEP-0039 standards",
-    request_body(
-        content(
-            MintNFTRequest,
-            serde_json::json!("NFT minting request")
-        ),
-        description = "NFT minting request",
-        content_type = "application/json"
-    ),
+    summary = "Create NFT minting transaction",
+    request_body = MintNFTRequest,
     responses(
         (status = 200, description = "Transaction created successfully", body = MintNFTResponse),
         (status = 400, description = "Invalid request", body = MintNFTResponse),
@@ -74,14 +67,8 @@ pub async fn mint_nft(
     post,
     path = "/api/v1/nft/metadata/format",
     tag = "NFT",
-    description = "Formats AI metadata according to Stellar SEP-0039 and EIP-721 standards",
-    request_body(
-        content(
-            AIMetadata,
-            serde_json::json!("AI metadata")
-        ),
-        description = "AI metadata to format"
-    ),
+    summary = "Format AI metadata for NFT",
+    request_body = AIMetadata,
     responses(
         (status = 200, description = "Metadata formatted successfully", body = serde_json::Value),
         (status = 400, description = "Invalid metadata", body = serde_json::Value)
@@ -119,7 +106,7 @@ pub async fn format_ai_metadata(
         ("url" = Option<String>, Query, description = "NFT URL"),
         ("image" = Option<String>, Query, description = "NFT image URL")
     ),
-    description = "Generates stellar.toml content following SEP-0039 standards for the NFT",
+    summary = "Generate stellar.toml for NFT",
     responses(
         (status = 200, description = "stellar.toml generated successfully", body = serde_json::Value),
         (status = 400, description = "Invalid parameters", body = serde_json::Value)
