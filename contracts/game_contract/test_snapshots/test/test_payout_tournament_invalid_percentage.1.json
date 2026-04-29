@@ -109,6 +109,14 @@
                                   },
                                   {
                                     "key": {
+                                      "symbol": "last_move_at"
+                                    },
+                                    "val": {
+                                      "u64": 0
+                                    }
+                                  },
+                                  {
+                                    "key": {
                                       "symbol": "moves"
                                     },
                                     "val": {

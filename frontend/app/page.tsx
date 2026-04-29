@@ -23,6 +23,9 @@ import { useChessSocket } from "@/hook/useChessSocket";
 import { useMatchmaking } from "@/hook/useMatchmaking";
 import { useRouter } from "next/navigation";
 import { useMatchmakingContext } from "@/context/matchmakingContext";
+import { Web3StatusBar } from "@/components/Web3StatusBar";
+import { ChessVariantSelector } from "@/components/ChessVariantSelector";
+import { getChessVariantById } from "@/lib/chessVariants";
 
 export default function Home() {
   const [game] = useState(new Chess());
@@ -36,7 +39,9 @@ export default function Home() {
   const PLAYER_COUNT_ENDPOINT = `${API_BASE}/v1/players/online`;
   const [isPersonalityModalOpen, setIsPersonalityModalOpen] = useState(false);
 
-  const { aiPersonality } = useMatchmakingContext();
+  const { aiPersonality, chessVariant, setChessVariant } =
+    useMatchmakingContext();
+  const selectedVariant = getChessVariantById(chessVariant);
 
   const {
     status: matchmakingStatus,
@@ -199,17 +204,21 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8" role="region" aria-label="Home">
+      {/* Web3 Status Bar */}
+      <div className="mb-4">
+        <Web3StatusBar />
+      </div>
       <div className="max-w-7xl mx-auto">
         <div className="flex flex-col md:flex-row gap-8 items-center justify-center">
           {/* Chessboard Section */}
-          <div className="w-full max-w-[600px] order-2 md:order-1">
+          <div className="w-full max-w-[600px] order-2 md:order-1" role="region" aria-label="Chessboard">
             <div className="w-full min-w-[320px]">
-              <ChessboardComponent position={position} onDrop={handleMove} />
+              <ChessboardComponent position={position} onDrop={handleMove} aria-label="Chess board. Use arrow keys or mouse to interact." />
             </div>
 
             {gameMode && (
-              <div className="mt-4 flex items-center justify-between bg-gradient-to-r from-gray-800/50 to-gray-900/50 p-4 rounded-xl border border-teal-500/20">
+              <div className="mt-4 flex items-center justify-between bg-gray-800/60 p-4 rounded-xl border border-gray-700/50 animate-slide-up" role="status" aria-live="polite">
                 <div className="flex items-center gap-4">
                   <div className="bg-gradient-to-br from-teal-400/30 to-blue-500/30 p-3 rounded-xl">
                     {gameMode === "online" ? (
@@ -218,88 +227,62 @@ export default function Home() {
                       <RiAliensFill className="text-2xl text-white filter drop-shadow-md" />
                     )}
                   </div>
-                  <h2 className="text-xl font-bold text-white tracking-wide">
-                    {gameMode === "online"
-                      ? onlineStatusLabel()
-                      : "Playing vs Bot"}
-                  </h2>
+                  <div>
+                    <h2 className="text-xl font-bold text-white tracking-wide">
+                      {gameMode === "online"
+                        ? onlineStatusLabel()
+                        : "Playing vs Bot"}
+                    </h2>
+                    <p className="mt-1 text-sm text-cyan-100/80">
+                      Variant: {selectedVariant.label} / {selectedVariant.averageGameTime}
+                    </p>
+                  </div>
                 </div>
 
                 <button
                   onClick={handleExit}
-                  className="px-4 py-2 bg-gradient-to-r from-red-500/20 to-red-600/20 hover:from-red-500/30 hover:to-red-600/30 
-                  border border-red-500/30 hover:border-red-400/50 rounded-lg text-white font-medium transition-all duration-300 
-                  flex items-center gap-2 group hover:scale-105 active:scale-95"
+                  className="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 hover:border-red-400/50 rounded-xl text-white font-medium transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] text-sm"
                 >
-                  <span>Exit Game</span>
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="h-5 w-5 transform transition-transform group-hover:translate-x-1"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M17 8l4 4m0 0l-4 4m4-4H3"
-                    />
-                  </svg>
+                  Exit Game
                 </button>
               </div>
             )}
 
-            {/* Searching spinner */}
             {gameMode === "online" && matchmakingStatus === "searching" && (
-              <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center">
-                <div className="bg-gray-800 p-6 rounded-xl border border-yellow-500/30 text-center">
+              <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center animate-overlay-in" role="dialog" aria-modal="true" aria-label="Searching for opponent">
+                <div className="bg-gray-900 p-8 rounded-2xl border border-yellow-500/30 text-center animate-modal-in max-w-sm w-full mx-4">
                   <div className="flex flex-col items-center gap-4">
                     <h3 className="text-xl font-bold text-yellow-400">
                       Looking for opponent...
                     </h3>
-                    <span className="relative flex h-8 w-8">
+                    <span className="relative flex h-10 w-10">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full border-2 border-yellow-400 opacity-75 [animation-duration:0.8s]"></span>
-                      <span className="relative inline-flex rounded-full h-8 w-8 border-2 border-yellow-500 bg-yellow-500/10"></span>
+                      <span className="relative inline-flex rounded-full h-10 w-10 border-2 border-yellow-500 bg-yellow-500/10"></span>
                     </span>
 
-                    <p className="text-gray-300 text-sm">
+                    <p className="text-gray-300 text-sm" aria-live="polite">
                       {onlinePlayerCount} Players online
+                    </p>
+                    <p className="text-cyan-100 text-xs uppercase tracking-[0.24em]">
+                      Queueing for {selectedVariant.label}
                     </p>
 
                     <button
                       onClick={handleExit}
-                      className="px-4 py-2 bg-gradient-to-r from-red-500/20 to-red-600/20 hover:from-red-500/30 hover:to-red-600/30 
-                  border border-red-500/30 hover:border-red-400/50 rounded-lg text-white font-medium transition-all duration-300 
-                  flex items-center gap-2 group hover:scale-105 active:scale-95"
+                      className="w-full px-4 py-2.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 hover:border-red-400/50 rounded-xl text-white font-medium transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
                     >
-                      <span>Cancel Search</span>
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        className="h-5 w-5"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M6 18L18 6M6 6l12 12"
-                        />
-                      </svg>
+                      Cancel Search
                     </button>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Reconnection overlay */}
             {gameMode === "online" && socketStatus === "reconnecting" && (
-              <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center">
-                <div className="bg-gray-800 p-6 rounded-xl border border-yellow-500/30 text-center">
+              <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center animate-overlay-in" role="dialog" aria-modal="true" aria-label="Reconnecting to game">
+                <div className="bg-gray-900 p-8 rounded-2xl border border-yellow-500/30 text-center animate-modal-in max-w-sm w-full mx-4">
                   <div className="flex flex-col items-center gap-4">
-                    <div className="w-8 h-8 rounded-full border-2 border-yellow-500 border-t-transparent animate-spin" />
+                    <div className="w-10 h-10 rounded-full border-2 border-yellow-500 border-t-transparent animate-spin" />
                     <h3 className="text-xl font-bold text-yellow-400">
                       Reconnecting...
                     </h3>
@@ -308,7 +291,7 @@ export default function Home() {
                     </p>
                     <button
                       onClick={reconnectSocket}
-                      className="mt-2 px-4 py-2 bg-yellow-500/20 hover:bg-yellow-500/30 border border-yellow-500/50 rounded-lg text-yellow-400 font-medium transition-all duration-300"
+                      className="w-full px-4 py-2.5 bg-yellow-500/10 hover:bg-yellow-500/20 border border-yellow-500/30 rounded-xl text-yellow-400 font-medium transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
                     >
                       Reconnect Now
                     </button>
@@ -319,8 +302,16 @@ export default function Home() {
           </div>
 
           {/* Game Modes Section */}
-          <div className="flex flex-col justify-center space-y-6 max-w-[500px] w-full order-1 md:order-2">
-            {!gameMode && <GameModeButtons setGameMode={handleSetGameMode} />}
+          <div className="flex flex-col justify-center space-y-6 max-w-[500px] w-full order-1 md:order-2" role="region" aria-label="Game mode selection">
+            {!gameMode && (
+              <>
+                <GameModeButtons setGameMode={handleSetGameMode} />
+                <ChessVariantSelector
+                  selectedVariant={chessVariant}
+                  onSelect={setChessVariant}
+                />
+              </>
+            )}
           </div>
         </div>
       </div>

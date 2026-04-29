@@ -61,3 +61,205 @@
     font-display: swap;
   }
 }
+
+/* ------------------------------------------------------------------ */
+/*  Premium Animations & Transitions                                   */
+/* ------------------------------------------------------------------ */
+
+@layer utilities {
+  /* Toast entrance */
+  .animate-toast-in {
+    animation: toast-in 0.35s cubic-bezier(0.21, 1.02, 0.73, 1) forwards;
+  }
+
+  /* Modal entrance */
+  .animate-modal-in {
+    animation: modal-in 0.3s cubic-bezier(0.21, 1.02, 0.73, 1) forwards;
+  }
+
+  /* Overlay fade in */
+  .animate-overlay-in {
+    animation: overlay-in 0.2s ease-out forwards;
+  }
+
+  /* Slide up entrance */
+  .animate-slide-up {
+    animation: slide-up 0.35s cubic-bezier(0.21, 1.02, 0.73, 1) forwards;
+  }
+
+  /* Fade in */
+  .animate-fade-in {
+    animation: fade-in 0.25s ease-out forwards;
+  }
+
+  /* Scale in (for cards) */
+  .animate-scale-in {
+    animation: scale-in 0.25s cubic-bezier(0.21, 1.02, 0.73, 1) forwards;
+  }
+
+  /* Pulse glow (for Web3 status indicators) */
+  .animate-pulse-glow {
+    animation: pulse-glow 2s ease-in-out infinite;
+  }
+
+  /* Shimmer loading effect */
+  .animate-shimmer {
+    animation: shimmer 1.5s ease-in-out infinite;
+    background-size: 200% 100%;
+  }
+
+  /* Float animation (for decorative elements) */
+  .animate-float {
+    animation: float 3s ease-in-out infinite;
+  }
+
+  /* Success checkmark */
+  .animate-check {
+    animation: check 0.4s cubic-bezier(0.65, 0, 0.35, 1) forwards;
+  }
+
+  /* Spin slow */
+  .animate-spin-slow {
+    animation: spin 3s linear infinite;
+  }
+}
+
+/* Keyframes */
+@keyframes toast-in {
+  0% {
+    opacity: 0;
+    transform: translateX(100%) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes modal-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.95) translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes overlay-in {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-up {
+  0% {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes scale-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes pulse-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 5px rgba(20, 184, 166, 0.3),
+      0 0 10px rgba(20, 184, 166, 0.1);
+  }
+  50% {
+    box-shadow: 0 0 10px rgba(20, 184, 166, 0.5),
+      0 0 20px rgba(20, 184, 166, 0.2);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes check {
+  0% {
+    stroke-dashoffset: 24;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Scrollbar Styling                                                  */
+/* ------------------------------------------------------------------ */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Shimmer Background                                                 */
+/* ------------------------------------------------------------------ */
+
+.shimmer-bg {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.03) 25%,
+    rgba(255, 255, 255, 0.08) 50%,
+    rgba(255, 255, 255, 0.03) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}

@@ -23,6 +23,7 @@ const GameModeButtons: React.FC<GameModeButtonsProps> = ({ setGameMode }) => {
           loop={true}
           autoplay={true}
           className="w-full h-auto"
+          aria-hidden="true"
           style={{
             filter: "drop-shadow(0 4px 6px rgba(0, 0, 0, 0.3))",
             transform: "scale(1.1)",
@@ -33,6 +34,7 @@ const GameModeButtons: React.FC<GameModeButtonsProps> = ({ setGameMode }) => {
       <div className="play-button-container relative">
         <button
           onClick={() => setGameMode("online")}
+          aria-label="Play Online — Play with someone at your level"
           className="play-button w-full p-4 relative border-none outline-none cursor-pointer transition-all duration-300 ease-in-out z-[2] overflow-hidden flex items-center justify-center bg-transparent"
         >
           <span className="button-text flex items-center gap-6 z-[3]">
@@ -59,6 +61,7 @@ const GameModeButtons: React.FC<GameModeButtonsProps> = ({ setGameMode }) => {
       <div className="play-button-container relative">
         <button
           onClick={() => setGameMode("bot")}
+          aria-label="Play Bots — Play vs customizable training bots"
           className="play-button w-full p-4 relative border-none outline-none cursor-pointer transition-all duration-300 ease-in-out z-[2] overflow-hidden flex items-center justify-center bg-transparent"
         >
           <span className="button-text flex items-center gap-6 z-[3]">
@@ -83,6 +86,7 @@ const GameModeButtons: React.FC<GameModeButtonsProps> = ({ setGameMode }) => {
       <div className="play-button-container relative">
         <button
           onClick={() => router.push("/puzzles")}
+          aria-label="Learn and Earn — Solve puzzles to earn XLM rewards"
           className="play-button w-full p-4 relative border-none outline-none cursor-pointer transition-all duration-300 ease-in-out z-[2] overflow-hidden flex items-center justify-center bg-transparent"
         >
           <span className="button-text flex items-center gap-6 z-[3]">

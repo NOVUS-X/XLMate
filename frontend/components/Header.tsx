@@ -14,12 +14,12 @@ export function Header() {
     const [collapsed, setCollapsed] = React.useState(false)
 
     return (
-        <header className="h-16 border-b border-border bg-card/80 backdrop-blur-sm fixed top-0 left-0 right-0 z-50">
+        <header className="h-16 border-b border-border bg-card/80 backdrop-blur-sm fixed top-0 left-0 right-0 z-50" role="banner">
             <div className="container h-full flex items-center justify-between">
                 <div className="flex items-center gap-4">
                     <Sheet>
                         <SheetTrigger asChild>
-                            <Button variant="ghost" size="icon" className="md:hidden">
+                            <Button variant="ghost" size="icon" className="md:hidden" aria-label="Open navigation menu">
                                 <MenuIcon />
                             </Button>
                         </SheetTrigger>
@@ -44,11 +44,11 @@ export function Header() {
                 </div>
 
                 <div className="flex items-center space-x-2">
-                    <Button variant="ghost" size="icon" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
+                    <Button variant="ghost" size="icon" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>
                         {theme === 'dark' ? <SunIcon className="h-5 w-5" /> : <MoonIcon className="h-5 w-5" />}
                     </Button>
 
-                    <Button variant="ghost" size="icon" className="md:hidden">
+                    <Button variant="ghost" size="icon" className="md:hidden" aria-label="User profile">
                         <UserIcon />
                     </Button>
                 </div>

@@ -1,198 +1,369 @@
-// import { Button } from "@/components/ui/button";
-// import { useAppContext } from "@/context/walletContext";
-// Wallet connection modal - implementation pending
-// import { useState } from "react";
+"use client";
 
-// interface WalletConnectModalProps {
-//   isOpen: boolean;
-//   onClose: () => void;
-// }
-
-// export function WalletConnectModal({
-//   isOpen,
-//   onClose,
-// }: WalletConnectModalProps) {
-//   const { connectors } = useConnect();
-//   const { connectWallet } = useAppContext();
-//   const [isConnecting, setIsConnecting] = useState<string | null>(null);
-//   if (!isOpen) return null;
-
-//   return (
-//     <div className="fixed inset-0 z-50 flex items-center justify-center">
-//       <div className="relative bg-gray-900 rounded-lg border border-gray-800 p-6 w-full max-w-md mx-4">
-//         <button
-//           onClick={onClose}
-//           className="absolute top-4 right-4 text-gray-400 hover:text-white"
-//           aria-label="Close modal"
-//         >
-//           <svg
-//             xmlns="http://www.w3.org/2000/svg"
-//             width="24"
-//             height="24"
-//             viewBox="0 0 24 24"
-//             fill="none"
-//             stroke="currentColor"
-//             strokeWidth="2"
-//             strokeLinecap="round"
-//             strokeLinejoin="round"
-//           >
-//             <line x1="18" y1="6" x2="6" y2="18"></line>
-//             <line x1="6" y1="6" x2="18" y2="18"></line>
-//           </svg>
-//         </button>
-//         <div className="space-y-4">
-//           <div className="text-center">
-//             <h2 className="text-xl font-bold text-white">Connect Wallet</h2>
-//             <p className="text-gray-400 mt-2">
-//               Choose your preferred wallet to connect to XLMate
-//             </p>
-//           </div>
-//           <div className="space-y-3">
-//             {connectors.map((connector) => {
-//               return (
-//                 <Button
-//                   key={connector.id}
-//                   disabled={isConnecting === connector.id}
-//                   className="w-full bg-gradient-to-r from-teal-500 to-blue-700 hover:from-teal-600 hover:to-blue-800"
-//                   onClick={() => {
-//                     setIsConnecting(connector.id);
-//                     connectWallet(connector)
-//                       .then(() => onClose())
-//                       .catch(() => setIsConnecting(null))
-//                       .finally(() => setIsConnecting(null));
-//                   }}
-//                 >
-//                   {isConnecting === connector.id ? (
-//                     <span className="flex items-center">
-//                       <svg
-//                         className="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
-//                         xmlns="http://www.w3.org/2000/svg"
-//                         fill="none"
-//                         viewBox="0 0 24 24"
-//                       >
-//                         <circle
-//                           className="opacity-25"
-//                           cx="12"
-//                           cy="12"
-//                           r="10"
-//                           stroke="currentColor"
-//                           strokeWidth="4"
-//                         ></circle>
-//                         <path
-//                           className="opacity-75"
-//                           fill="currentColor"
-//                           d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-//                         ></path>
-//                       </svg>
-//                       Connecting...
-//                     </span>
-//                   ) : (
-//                     connector.id.charAt(0).toUpperCase() + connector.id.slice(1)
-//                   )}
-//                 </Button>
-//               );
-//             })}
-//           </div>
-//         </div>
-//       </div>
-//     </div>
-//   );
-// }
-
-// Placeholder export while WalletConnectModal is being implemented
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
+import * as Dialog from "@radix-ui/react-dialog";
 import { useAppContext } from "@/context/walletContext";
+import { useToast } from "@/components/ui/toast";
+import { useTrackedTransaction } from "@/hook/useTrackedTransaction";
 
-export function WalletConnectModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
-  const { connectWallet, disconnectWallet, address, sendXLM, invokeSorobanContract, status } = useAppContext();
-  const [isProcessing, setIsProcessing] = useState(false);
-  if (!isOpen) return null;
+interface WalletConnectModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
 
-  const handleConnect = async () => {
-    setIsProcessing(true);
+type TxStep = "idle" | "pending" | "success" | "error";
+
+export function WalletConnectModal({
+  isOpen,
+  onClose,
+}: WalletConnectModalProps) {
+  const {
+    connectWallet,
+    disconnectWallet,
+    address,
+    sendXLM,
+  } = useAppContext();
+  const { addToast } = useToast();
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [txStep, setTxStep] = useState<TxStep>("idle");
+  const [showXlmSend, setShowXlmSend] = useState(false);
+  const [xlmDestination, setXlmDestination] = useState("");
+  const [xlmAmount, setXlmAmount] = useState("");
+
+  const { execute: executeTrackedTx } = useTrackedTransaction({
+    type: "payment",
+    label: `Send ${xlmAmount || "?"} XLM`,
+    amount: xlmAmount,
+    destination: xlmDestination,
+  });
+
+  const handleConnect = useCallback(async () => {
+    setIsConnecting(true);
     try {
       await connectWallet();
-      onClose();
-    } catch (e) {
-      // errors are surfaced via console and may be shown by a toast elsewhere
-      console.error(e);
+      addToast({
+        severity: "success",
+        title: "Wallet Connected",
+        detail: "Your Freighter wallet is now connected to XLMate.",
+      });
+    } catch (err) {
+      addToast({
+        severity: "error",
+        title: "Connection Failed",
+        detail:
+          err instanceof Error ? err.message : "Unable to connect wallet.",
+      });
     } finally {
-      setIsProcessing(false);
+      setIsConnecting(false);
     }
-  };
+  }, [connectWallet, addToast]);
 
-  const handleSendTest = async () => {
-    if (!address) return;
-    setIsProcessing(true);
+  const handleDisconnect = useCallback(async () => {
     try {
-      // send a small test payment to self (no-op) — replace destination as needed
-      await sendXLM(address, "0.0001");
+      await disconnectWallet();
+      setTxStep("idle");
+      setShowXlmSend(false);
+      addToast({
+        severity: "info",
+        title: "Wallet Disconnected",
+        detail: "Your wallet has been disconnected.",
+      });
       onClose();
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsProcessing(false);
+    } catch {
+      addToast({
+        severity: "error",
+        title: "Disconnect Failed",
+        detail: "Could not disconnect wallet.",
+      });
     }
-  };
+  }, [disconnectWallet, addToast, onClose]);
 
-  const handleInvoke = async () => {
-    setIsProcessing(true);
-    try {
-      // Placeholder: requires contract ABI/params — will throw until implemented
-      await invokeSorobanContract("<contract-id>", "<function>");
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsProcessing(false);
+  const handleSendXLM = useCallback(async () => {
+    if (!address || !xlmDestination || !xlmAmount) return;
+    setTxStep("pending");
+
+    const result = await executeTrackedTx(async () => {
+      return await sendXLM(xlmDestination, xlmAmount);
+    });
+
+    if (result !== undefined) {
+      setTxStep("success");
+      setTimeout(() => {
+        setShowXlmSend(false);
+        setXlmDestination("");
+        setXlmAmount("");
+        setTxStep("idle");
+      }, 2000);
+    } else {
+      setTxStep("error");
+      setTimeout(() => setTxStep("idle"), 3000);
     }
-  };
+  }, [address, xlmDestination, xlmAmount, sendXLM, executeTrackedTx]);
+
+  const truncateAddress = (addr: string) =>
+    `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="relative bg-gray-900 rounded-lg border border-gray-800 p-6 w-full max-w-md mx-4">
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 text-gray-400 hover:text-white"
-          aria-label="Close modal"
-        >
-          ✕
-        </button>
-        <h2 className="text-xl font-semibold text-white mb-4">Connect Wallet</h2>
-        <p className="text-gray-400 mb-6">Connect via Freighter to use XLMate on Stellar/Soroban</p>
+    <Dialog.Root open={isOpen} onOpenChange={(open: boolean) => !open && onClose()}>
+      <Dialog.Portal>
+        {/* Overlay */}
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm animate-overlay-in" />
 
-        <div className="space-y-3">
-          {address ? (
-            <div className="text-sm text-gray-200">
-              <div>Connected: {address}</div>
-              <div className="flex gap-2 mt-3">
-                <button onClick={handleSendTest} disabled={isProcessing} className="btn">
-                  Send Test XLM
-                </button>
-                <button onClick={handleInvoke} disabled={isProcessing} className="btn">
-                  Invoke Contract
-                </button>
+        {/* Content */}
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-gray-700/80 bg-gray-900/95 backdrop-blur-xl p-0 shadow-2xl animate-modal-in focus:outline-none">
+          {/* Header gradient bar */}
+          <div className="h-1 w-full rounded-t-2xl bg-gradient-to-r from-teal-500 via-blue-600 to-indigo-500" />
+
+          <div className="p-6 space-y-5">
+            {/* Close button */}
+            <Dialog.Close className="absolute top-5 right-5 text-gray-500 hover:text-white transition-colors">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-5 w-5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </Dialog.Close>
+
+            {/* Title */}
+            <Dialog.Title className="text-xl font-bold text-white">
+              {address ? "Wallet Connected" : "Connect Wallet"}
+            </Dialog.Title>
+            <Dialog.Description className="text-sm text-gray-400">
+              {address
+                ? "Manage your Stellar wallet and send transactions."
+                : "Connect your Freighter wallet to play, earn rewards, and transact on Stellar."}
+            </Dialog.Description>
+
+            {/* Connected state */}
+            {address ? (
+              <div className="space-y-4">
+                {/* Address display */}
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-gray-800/60 border border-gray-700/50">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-teal-400 to-blue-600 flex items-center justify-center text-white text-xs font-bold">
+                    {address.slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-mono text-gray-200 truncate">
+                      {truncateAddress(address)}
+                    </p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse-glow" />
+                      <span className="text-xs text-emerald-400">
+                        Connected
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(address);
+                      addToast({
+                        severity: "info",
+                        title: "Address Copied",
+                        detail: "Wallet address copied to clipboard.",
+                      });
+                    }}
+                    className="p-2 rounded-lg hover:bg-gray-700/50 text-gray-400 hover:text-white transition-colors"
+                    aria-label="Copy address"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="h-4 w-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                      />
+                    </svg>
+                  </button>
+                </div>
+
+                {/* Action buttons */}
+                <div className="space-y-2">
+                  {!showXlmSend ? (
+                    <button
+                      onClick={() => setShowXlmSend(true)}
+                      className="w-full py-2.5 rounded-xl bg-gradient-to-r from-teal-500/20 to-blue-600/20 border border-teal-500/30 hover:from-teal-500/30 hover:to-blue-600/30 text-teal-400 font-medium text-sm transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
+                    >
+                      Send XLM
+                    </button>
+                  ) : (
+                    <div className="space-y-3 p-3 rounded-xl bg-gray-800/40 border border-gray-700/30 animate-scale-in">
+                      <input
+                        type="text"
+                        placeholder="Destination address"
+                        aria-label="Destination address"
+                        value={xlmDestination}
+                        onChange={(e) => setXlmDestination(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg bg-gray-800/60 border border-gray-700/50 text-gray-200 text-sm placeholder:text-gray-500 focus:outline-none focus:border-teal-500/50 transition-colors"
+                      />
+                      <input
+                        type="number"
+                        placeholder="Amount (XLM)"
+                        aria-label="Amount in XLM"
+                        value={xlmAmount}
+                        onChange={(e) => setXlmAmount(e.target.value)}
+                        step="0.001"
+                        min="0"
+                        className="w-full px-3 py-2 rounded-lg bg-gray-800/60 border border-gray-700/50 text-gray-200 text-sm placeholder:text-gray-500 focus:outline-none focus:border-teal-500/50 transition-colors"
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          onClick={handleSendXLM}
+                          disabled={
+                            txStep === "pending" ||
+                            !xlmDestination ||
+                            !xlmAmount
+                          }
+                          className="flex-1 py-2 rounded-lg bg-gradient-to-r from-teal-500 to-blue-600 hover:from-teal-600 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium text-sm transition-all duration-300"
+                        >
+                          {txStep === "pending" ? (
+                            <span className="flex items-center justify-center gap-2">
+                              <svg
+                                className="animate-spin h-4 w-4"
+                                viewBox="0 0 24 24"
+                              >
+                                <circle
+                                  className="opacity-25"
+                                  cx="12"
+                                  cy="12"
+                                  r="10"
+                                  stroke="currentColor"
+                                  strokeWidth="4"
+                                  fill="none"
+                                />
+                                <path
+                                  className="opacity-75"
+                                  fill="currentColor"
+                                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                                />
+                              </svg>
+                              Sending...
+                            </span>
+                          ) : txStep === "success" ? (
+                            "Sent!"
+                          ) : txStep === "error" ? (
+                            "Retry"
+                          ) : (
+                            "Send"
+                          )}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowXlmSend(false);
+                            setTxStep("idle");
+                          }}
+                          className="px-4 py-2 rounded-lg bg-gray-700/50 hover:bg-gray-700 text-gray-300 text-sm transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Disconnect */}
                 <button
-                  onClick={async () => {
-                    await disconnectWallet();
-                    onClose();
-                  }}
-                  className="btn-ghost"
+                  onClick={handleDisconnect}
+                  className="w-full py-2.5 rounded-xl border border-red-500/30 hover:bg-red-500/10 text-red-400 font-medium text-sm transition-all duration-300"
                 >
-                  Disconnect
+                  Disconnect Wallet
                 </button>
               </div>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-3">
-              <button onClick={handleConnect} disabled={isProcessing} className="w-full bg-gradient-to-r from-teal-500 to-blue-700 hover:from-teal-600 hover:to-blue-800 text-white py-2 rounded">
-                {isProcessing ? "Connecting..." : "Connect Freighter"}
-              </button>
-              <div className="text-xs text-gray-400">Freighter must be installed and unlocked in your browser.</div>
-            </div>
-          )}
-          <div className="text-xs text-gray-500 mt-4">Status: {status}</div>
-        </div>
-      </div>
-    </div>
+            ) : (
+              /* Disconnected state */
+              <div className="space-y-4">
+                {/* Freighter connect */}
+                <button
+                  onClick={handleConnect}
+                  disabled={isConnecting}
+                  className="w-full group relative py-3 rounded-xl font-semibold text-white overflow-hidden transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-teal-500 to-blue-700 transition-all duration-300 group-hover:from-teal-600 group-hover:to-blue-800" />
+                  <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-gradient-to-r from-teal-400/20 to-blue-600/20" />
+                  <span className="relative z-10 flex items-center justify-center gap-2">
+                    {isConnecting ? (
+                      <>
+                        <svg
+                          className="animate-spin h-5 w-5"
+                          viewBox="0 0 24 24"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                            fill="none"
+                          />
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                          />
+                        </svg>
+                        Connecting...
+                      </>
+                    ) : (
+                      <>
+                        <svg
+                          className="h-5 w-5"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth={2}
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M21 12V7H5a2 2 0 010-4h14v4"
+                          />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M3 5v14a2 2 0 002 2h16v-5"
+                          />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M18 12a2 2 0 100 4 2 2 0 000-4z"
+                          />
+                        </svg>
+                        Connect Freighter
+                      </>
+                    )}
+                  </span>
+                </button>
+
+                <p className="text-xs text-gray-500 text-center">
+                  Freighter must be installed and unlocked in your browser to
+                  connect.
+                </p>
+
+                {/* Network info */}
+                <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
+                  <span className="w-2 h-2 rounded-full bg-yellow-500" />
+                  <span>Stellar Testnet</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
