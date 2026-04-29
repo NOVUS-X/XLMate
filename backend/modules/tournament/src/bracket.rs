@@ -156,10 +156,6 @@ impl BracketService {
         match_id: Uuid,
         winner_id: Uuid,
     ) -> Result<(), BracketError> {
-        if bracket.status != TournamentStatus::InProgress {
-            return Err(BracketError::TournamentNotStarted);
-        }
-
         let (match_round, match_number) = {
             let m = bracket
                 .matches
@@ -169,6 +165,9 @@ impl BracketService {
 
             if m.status == MatchStatus::Completed {
                 return Err(BracketError::MatchAlreadyCompleted);
+            }
+            if bracket.status != TournamentStatus::InProgress {
+                return Err(BracketError::TournamentNotStarted);
             }
             if m.player1_id != Some(winner_id) && m.player2_id != Some(winner_id) {
                 return Err(BracketError::PlayerNotInMatch);
