@@ -16,10 +16,13 @@ import BlackKnight from "./chesspieces/black-knight.svg";
 import BlackRook from "./chesspieces/black-rook.svg";
 import BlackPawn from "./chesspieces/black-pawn.svg";
 
+type BoardOrientation = "white" | "black";
+
 interface ChessboardComponentProps {
   position: string;
   onDrop: (params: { sourceSquare: string; targetSquare: string }) => boolean;
-  width?: number; // Added width as optional prop
+  width?: number; // Optional fixed width
+  orientation?: BoardOrientation;
 }
 
 // Parse FEN string to board state - memoized pure function
@@ -70,6 +73,7 @@ const ChessboardComponent: React.FC<ChessboardComponentProps> = ({
   position,
   onDrop,
   width,
+  orientation = "white",
 }) => {
   const [mounted, setMounted] = useState(false);
   const [boardWidth, setBoardWidth] = useState(width || 560);
@@ -78,50 +82,90 @@ const ChessboardComponent: React.FC<ChessboardComponentProps> = ({
   const touchStartSquare = useRef<string | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
 
-  // Memoize board state parsing - prevents re-parsing on every render
   const boardState = useMemo(() => parseFen(position), [position]);
 
-  useEffect(() => {
-    const updateBoardSize = () => {
-      if (typeof document === "undefined") return;
-      const container = document.querySelector(
-        ".chessboard-container",
-      )?.parentElement;
-      if (!container) return;
-      const vw = Math.max(
-        document.documentElement.clientWidth || 0,
-        window.innerWidth || 0,
-      );
-      const containerWidth = container.clientWidth;
-      const maxSize = 560;
-      const minSize = Math.min(320, containerWidth);
-      let newWidth;
-      if (vw < 768) {
-        newWidth = Math.max(minSize, Math.min(containerWidth * 0.95, maxSize));
-      } else {
-        newWidth = Math.min(containerWidth, maxSize);
+  const translateDisplayToActual = useCallback(
+    (row: number, col: number) => {
+      if (orientation === "black") {
+        return [7 - row, 7 - col] as const;
       }
+      return [row, col] as const;
+    },
+    [orientation],
+  );
 
-      setBoardWidth(newWidth);
-    };
+  const getSquareNotation = useCallback((row: number, col: number) => {
+    return `${String.fromCharCode(97 + col)}${8 - row}`;
+  }, []);
 
-    if (mounted) {
-      updateBoardSize();
-      window.addEventListener("resize", updateBoardSize);
-      window.addEventListener("orientationchange", updateBoardSize);
-    }
+  const updateBoardSize = useCallback(
+    (parentWidth?: number) => {
+      if (typeof window === "undefined") return;
+      const containerWidth =
+        parentWidth ?? boardRef.current?.parentElement?.clientWidth ??
+        window.innerWidth;
+      if (!containerWidth) return;
 
-    return () => {
-      window.removeEventListener("resize", updateBoardSize);
-      window.removeEventListener("orientationchange", updateBoardSize);
-    };
-  }, [mounted]);
+      const maxSize = width || 560;
+      const clampWidth = Math.min(containerWidth, maxSize);
+      const responsiveWidth =
+        window.innerWidth < 768
+          ? Math.max(240, Math.min(clampWidth * 0.95, clampWidth))
+          : clampWidth;
+
+      setBoardWidth((current) => {
+        const rounded = Math.round(responsiveWidth);
+        return Math.abs(current - rounded) > 1 ? rounded : current;
+      });
+    },
+    [width],
+  );
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  // Memoize piece image mapping - prevents recreation on every render
+  useEffect(() => {
+    if (!mounted || width) {
+      if (width) {
+        setBoardWidth(width);
+      }
+      return;
+    }
+
+    const parent = boardRef.current?.parentElement;
+    if (!parent) return;
+
+    updateBoardSize(parent.clientWidth);
+
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver((entries) => {
+            for (const entry of entries) {
+              updateBoardSize(entry.contentRect.width);
+            }
+          })
+        : null;
+
+    if (resizeObserver) {
+      resizeObserver.observe(parent);
+    }
+
+    const onWindowResize = () => updateBoardSize();
+    const onOrientationChange = () => updateBoardSize();
+
+    window.addEventListener("resize", onWindowResize);
+    window.addEventListener("orientationchange", onOrientationChange);
+
+    return () => {
+      window.removeEventListener("resize", onWindowResize);
+      window.removeEventListener("orientationchange", onOrientationChange);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+    };
+  }, [mounted, width, updateBoardSize]);
+
   const pieceImages: Record<string, string> = useMemo(
     () => ({
       wP: WhitePawn,
@@ -190,9 +234,12 @@ const ChessboardComponent: React.FC<ChessboardComponentProps> = ({
               className="group-hover:filter group-hover:brightness-110"
               onError={(e) => {
                 console.error(`Failed to load chess piece: ${piece}`);
-                const target = e.target as HTMLImageElement;
-                if (target) {
-                  target.style.opacity = "0.5";
+                const target = e.target;
+                if (
+                  target &&
+                  typeof (target as Element).className !== "undefined"
+                ) {
+                  (target as HTMLElement).style.opacity = "0.5";
                 }
               }}
             />
@@ -226,8 +273,9 @@ const ChessboardComponent: React.FC<ChessboardComponentProps> = ({
 
   const handleSquareClick = useCallback(
     (row: number, col: number) => {
-      const clickedSquare = `${row},${col}`;
-      if (!selectedSquare && boardState[row][col]) {
+      const [actualRow, actualCol] = translateDisplayToActual(row, col);
+      const clickedSquare = `${actualRow},${actualCol}`;
+      if (!selectedSquare && boardState[actualRow][actualCol]) {
         setSelectedSquare(clickedSquare);
         return;
       }
@@ -237,21 +285,22 @@ const ChessboardComponent: React.FC<ChessboardComponentProps> = ({
       }
       if (selectedSquare) {
         const [sourceRow, sourceCol] = selectedSquare.split(",").map(Number);
-        attemptMove(sourceRow, sourceCol, row, col);
+        attemptMove(sourceRow, sourceCol, actualRow, actualCol);
       }
     },
-    [selectedSquare, boardState, attemptMove],
+    [selectedSquare, boardState, attemptMove, translateDisplayToActual],
   );
 
   const handleDragStart = useCallback(
     (e: React.DragEvent, row: number, col: number) => {
-      e.dataTransfer.setData("text/plain", `${row},${col}`);
+      const [actualRow, actualCol] = translateDisplayToActual(row, col);
+      e.dataTransfer.setData("text/plain", `${actualRow},${actualCol}`);
       const draggedElement = e.currentTarget as HTMLElement;
       if (draggedElement) {
         draggedElement.style.opacity = "0.6";
       }
     },
-    [],
+    [translateDisplayToActual],
   );
 
   const handleDragEnd = useCallback((e: React.DragEvent) => {
@@ -262,46 +311,54 @@ const ChessboardComponent: React.FC<ChessboardComponentProps> = ({
   }, []);
 
   const handleDrop = useCallback(
-    (e: React.DragEvent, targetRow: number, targetCol: number) => {
+    (e: React.DragEvent, row: number, col: number) => {
       e.preventDefault();
+      const [targetRow, targetCol] = translateDisplayToActual(row, col);
       const data = e.dataTransfer.getData("text/plain");
       const [sourceRow, sourceCol] = data.split(",").map(Number);
       attemptMove(sourceRow, sourceCol, targetRow, targetCol);
     },
-    [attemptMove],
+    [attemptMove, translateDisplayToActual],
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
   }, []);
 
-  const getSquareFromTouch = useCallback((touch: React.Touch): [number, number] | null => {
-    if (!boardRef.current) return null;
-    const rect = boardRef.current.getBoundingClientRect();
-    const x = touch.clientX - rect.left;
-    const y = touch.clientY - rect.top;
-    const col = Math.floor((x / rect.width) * 8);
-    const row = Math.floor((y / rect.height) * 8);
-    if (col < 0 || col > 7 || row < 0 || row > 7) return null;
-    return [row, col];
-  }, []);
+  const getSquareFromTouch = useCallback(
+    (touch: React.Touch): [number, number] | null => {
+      if (!boardRef.current) return null;
+      const rect = boardRef.current.getBoundingClientRect();
+      const x = touch.clientX - rect.left;
+      const y = touch.clientY - rect.top;
+      const col = Math.floor((x / rect.width) * 8);
+      const row = Math.floor((y / rect.height) * 8);
+      if (col < 0 || col > 7 || row < 0 || row > 7) return null;
+      return [row, col];
+    },
+    [],
+  );
 
   const handleTouchStart = useCallback(
     (e: React.TouchEvent, row: number, col: number) => {
-      if (!boardState[row][col]) return;
-      touchStartSquare.current = `${row},${col}`;
-      setSelectedSquare(`${row},${col}`);
+      const [actualRow, actualCol] = translateDisplayToActual(row, col);
+      if (!boardState[actualRow][actualCol]) return;
+      touchStartSquare.current = `${actualRow},${actualCol}`;
+      setSelectedSquare(`${actualRow},${actualCol}`);
     },
-    [boardState],
+    [boardState, translateDisplayToActual],
   );
 
   const handleTouchMove = useCallback(
     (e: React.TouchEvent) => {
       if (!touchStartSquare.current) return;
       const sq = getSquareFromTouch(e.touches[0]);
-      if (sq) setHoveredSquare(`${sq[0]},${sq[1]}`);
+      if (sq) {
+        const [actualRow, actualCol] = translateDisplayToActual(sq[0], sq[1]);
+        setHoveredSquare(`${actualRow},${actualCol}`);
+      }
     },
-    [getSquareFromTouch],
+    [getSquareFromTouch, translateDisplayToActual],
   );
 
   const handleTouchEnd = useCallback(
@@ -310,13 +367,14 @@ const ChessboardComponent: React.FC<ChessboardComponentProps> = ({
       const sq = getSquareFromTouch(e.changedTouches[0]);
       if (sq) {
         const [srcRow, srcCol] = touchStartSquare.current.split(",").map(Number);
-        attemptMove(srcRow, srcCol, sq[0], sq[1]);
+        const [targetRow, targetCol] = translateDisplayToActual(sq[0], sq[1]);
+        attemptMove(srcRow, srcCol, targetRow, targetCol);
       }
       touchStartSquare.current = null;
       setHoveredSquare(null);
       setSelectedSquare(null);
     },
-    [getSquareFromTouch, attemptMove],
+    [getSquareFromTouch, attemptMove, translateDisplayToActual],
   );
 
   if (!mounted) {
@@ -337,7 +395,6 @@ const ChessboardComponent: React.FC<ChessboardComponentProps> = ({
       style={{
         width: "100%",
         maxWidth: `${boardWidth}px`,
-        minWidth: "320px",
         aspectRatio: "1/1",
         display: "grid",
         gridTemplateColumns: `repeat(8, minmax(0, 1fr))`,
@@ -355,18 +412,25 @@ const ChessboardComponent: React.FC<ChessboardComponentProps> = ({
       aria-live="polite"
     >
       {boardState.map((row, rowIndex) =>
-        row.map((piece, colIndex) => {
+        row.map((_, colIndex) => {
+          const [actualRow, actualCol] = translateDisplayToActual(
+            rowIndex,
+            colIndex,
+          );
+          const piece = boardState[actualRow][actualCol];
           const isLight = (rowIndex + colIndex) % 2 === 1;
-          const squareKey = `${rowIndex},${colIndex}`;
+          const squareKey = `${actualRow},${actualCol}`;
           const isSelected = selectedSquare === squareKey;
-          const isHovered = hoveredSquare === squareKey && hoveredSquare !== selectedSquare;
+          const isHovered =
+            hoveredSquare === squareKey && hoveredSquare !== selectedSquare;
+          const squareLabel = `${getSquareNotation(actualRow, actualCol)}${
+            piece ? " with " + piece : ""
+          }`;
           return (
             <div
               key={`${rowIndex}-${colIndex}`}
               role="gridcell"
-              aria-label={`${String.fromCharCode(97 + colIndex)}${
-                8 - rowIndex
-              }${piece ? " with " + piece : ""}`}
+              aria-label={squareLabel}
               tabIndex={0}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
