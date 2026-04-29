@@ -23,7 +23,6 @@ pub struct MintNFTResponse {
     post,
     path = "/api/v1/nft/mint",
     tag = "NFT",
-    summary = "Create NFT minting transaction",
     request_body = MintNFTRequest,
     responses(
         (status = 200, description = "Transaction created successfully", body = MintNFTResponse),
@@ -67,7 +66,6 @@ pub async fn mint_nft(
     post,
     path = "/api/v1/nft/metadata/format",
     tag = "NFT",
-    summary = "Format AI metadata for NFT",
     request_body = AIMetadata,
     responses(
         (status = 200, description = "Metadata formatted successfully", body = serde_json::Value),
@@ -106,7 +104,6 @@ pub async fn format_ai_metadata(
         ("url" = Option<String>, Query, description = "NFT URL"),
         ("image" = Option<String>, Query, description = "NFT image URL")
     ),
-    summary = "Generate stellar.toml for NFT",
     responses(
         (status = 200, description = "stellar.toml generated successfully", body = serde_json::Value),
         (status = 400, description = "Invalid parameters", body = serde_json::Value)
