@@ -180,7 +180,7 @@ export default function PuzzlesPage() {
     setIsClaiming(true);
 
     const result = await executeClaim(async () => {
-      // Simulate on-chain reward claim — in production this would invoke a Soroban contract
+      // Simulate on-chain reward claim; production would invoke a Soroban contract.
       await new Promise((resolve) => setTimeout(resolve, 1500));
       return true;
     });
@@ -240,21 +240,22 @@ export default function PuzzlesPage() {
       <div className="min-h-screen p-4 md:p-8" role="region" aria-label="Chess Puzzles">
         {/* Reward Popup */}
         {showReward && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center animate-overlay-in" role="dialog" aria-modal="true" aria-label="Puzzle reward">
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center animate-overlay-in" role="dialog" aria-modal="true" aria-labelledby="puzzle-reward-title" aria-describedby="puzzle-reward-description">
             <div className="bg-gray-900 p-8 rounded-2xl border border-emerald-500/30 text-center animate-modal-in max-w-sm w-full mx-4">
               <div className="flex flex-col items-center gap-4">
                 <div className="w-16 h-16 rounded-full bg-gradient-to-br from-yellow-400/20 to-emerald-500/20 flex items-center justify-center">
                   <FaTrophy className="text-4xl text-yellow-400" />
                 </div>
-                <h3 className="text-2xl font-bold text-emerald-400">Puzzle Complete!</h3>
-                <p className="text-xl text-white">+{rewardAmount} XLM</p>
-                <div className="text-sm text-gray-400 space-y-1">
-                  <p>✅ Backend verification complete</p>
-                  <p>🎁 Reward ready to claim</p>
+                <h3 id="puzzle-reward-title" className="text-2xl font-bold text-emerald-400">Puzzle Complete!</h3>
+                <p id="puzzle-reward-description" className="text-xl text-white">+{rewardAmount} XLM reward ready to claim</p>
+                <div className="text-sm text-gray-400 space-y-1" aria-label="Reward claim status">
+                  <p>Backend verification complete</p>
+                  <p>Reward ready to claim</p>
                 </div>
                 <button
                   onClick={handleClaimReward}
                   disabled={isClaiming}
+                  aria-busy={isClaiming}
                   className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 disabled:opacity-50 text-white font-bold text-sm transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
                 >
                   {isClaiming ? (
@@ -334,6 +335,7 @@ export default function PuzzlesPage() {
                   <button
                     onClick={handleMoveBack}
                     disabled={currentMove === 0}
+                    aria-label="Go back one puzzle move"
                     className="flex-1 px-4 py-2.5 bg-gray-700/60 hover:bg-gray-600/60 disabled:bg-gray-800/40 disabled:text-gray-600 rounded-xl text-white font-medium transition-colors text-sm"
                   >
                     <FaTimes className="inline mr-2" />
@@ -341,6 +343,7 @@ export default function PuzzlesPage() {
                   </button>
                   <button
                     onClick={handleReset}
+                    aria-label="Reset current puzzle"
                     className="flex-1 px-4 py-2.5 bg-gray-700/60 hover:bg-gray-600/60 rounded-xl text-white font-medium transition-colors text-sm"
                   >
                     <FaRedo className="inline mr-2" />
@@ -350,9 +353,10 @@ export default function PuzzlesPage() {
                 <button
                   onClick={() => setShowHint(!showHint)}
                   aria-pressed={showHint}
+                  aria-controls={selectedPuzzle.hint ? "puzzle-hint" : undefined}
                   className="w-full px-4 py-2.5 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 rounded-xl text-blue-400 font-medium transition-colors text-sm"
                 >
-                  💡 Hint
+                  Hint
                 </button>
                 <button
                   onClick={handleMoveNext}
@@ -364,16 +368,16 @@ export default function PuzzlesPage() {
                       Submit Solution
                     </>
                   ) : (
-                    "Next Move →"
+                    "Next Move"
                   )}
                 </button>
               </div>
           
               {/* Hint Display */}
               {showHint && selectedPuzzle.hint && (
-                <div className="mt-3 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg animate-scale-in">
+                <div id="puzzle-hint" className="mt-3 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg animate-scale-in">
                   <p className="text-blue-400 text-sm">
-                    💡 {selectedPuzzle.hint}
+                    {selectedPuzzle.hint}
                   </p>
                 </div>
               )}
@@ -390,7 +394,7 @@ export default function PuzzlesPage() {
                   aria-live="assertive"
                 >
                   <p className="font-medium text-sm">
-                    {isCorrect ? '✅ Correct! Well done!' : '❌ Not quite right. Try again!'}
+                    {isCorrect ? 'Correct! Well done!' : 'Not quite right. Try again!'}
                   </p>
                 </div>
               )}
@@ -436,19 +440,17 @@ export default function PuzzlesPage() {
           {MOCK_PUZZLES.map((puzzle, idx) => {
             const isCompleted = completedPuzzles.has(puzzle.id);
             return (
-              <div
+              <button
+                type="button"
                 key={puzzle.id}
-                className={`bg-gray-800/60 p-6 rounded-xl border transition-all duration-300 hover:scale-[1.03] cursor-pointer animate-slide-up ${
+                className={`w-full bg-gray-800/60 p-6 rounded-xl border text-left transition-all duration-300 hover:scale-[1.03] cursor-pointer animate-slide-up focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950 ${
                   isCompleted 
                     ? 'border-emerald-500/30 bg-emerald-500/5' 
                     : 'border-gray-700/50 hover:border-gray-600/50'
                 }`}
                 style={{ animationDelay: `${idx * 0.05}s` }}
                 onClick={() => handlePuzzleSelect(puzzle)}
-                onKeyDown={(e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handlePuzzleSelect(puzzle); } }}
-                role="button"
-                tabIndex={0}
-                aria-label={`${puzzle.title} — ${puzzle.difficulty} difficulty${isCompleted ? ', completed' : ''}`}
+                aria-label={`${puzzle.title}, ${puzzle.difficulty} difficulty${isCompleted ? ', completed' : ''}`}
               >
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-bold text-white">{puzzle.title}</h3>
@@ -466,7 +468,7 @@ export default function PuzzlesPage() {
                   <span className="text-xs text-gray-500">Puzzle #{puzzle.id}</span>
                   <span className="text-xs text-emerald-400 font-medium">+0.01 XLM</span>
                 </div>
-              </div>
+              </button>
             );
           })}
         </div>
