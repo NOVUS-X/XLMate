@@ -84,6 +84,8 @@ impl std::fmt::Display for BracketError {
     }
 }
 
+impl std::error::Error for BracketError {}
+
 pub struct BracketService;
 
 impl BracketService {

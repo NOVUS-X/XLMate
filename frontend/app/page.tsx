@@ -28,6 +28,7 @@ import { FaUser } from "react-icons/fa";
 import { RiAliensFill } from "react-icons/ri";
 import { useChessSocket } from "@/hook/useChessSocket";
 import { useMatchmaking } from "@/hook/useMatchmaking";
+import { useStockfishWASM, AnalysisResult } from "@/components/chess/StockfishWASM";
 import { useRouter } from "next/navigation";
 import { useMatchmakingContext } from "@/context/matchmakingContext";
 import { Web3StatusBar } from "@/components/Web3StatusBar";
