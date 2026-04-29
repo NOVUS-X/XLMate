@@ -10,7 +10,7 @@ interface WASMEngineConfig {
   defaultTimeLimit?: number;
 }
 
-interface AnalysisResult {
+export interface AnalysisResult {
   bestMove: string;
   evaluation: number | null;
   depth: number;
