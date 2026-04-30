@@ -9,7 +9,7 @@ import { ThemeProvider } from "next-themes";
 
 export const metadata: Metadata = {
   title: "XLMate",
-  description: "XLMate — Chess on Stellar",
+  description: "XLMate - Chess on Stellar",
 };
 
 export default function RootLayout({

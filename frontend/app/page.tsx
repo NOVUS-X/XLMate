@@ -87,7 +87,7 @@ export default function Home() {
     [gameId, socketSendMove, matchmakingSendMove],
   );
 
-  // Kick off matchmaking when online mode is selected — but only after personality is confirmed
+  // Kick off matchmaking when online mode is selected, but only after personality is confirmed.
   // (joinMatchmaking is now called from handlePersonalityConfirm, not here)
 
   useEffect(() => {
@@ -136,7 +136,7 @@ export default function Home() {
       });
       if (move) setPosition(game.fen());
     } catch {
-      // illegal move from server — ignore
+      // Illegal move from server; ignore it and wait for the next valid update.
     }
   }, [lastOpponentMove, game, gameMode]);
 
@@ -252,12 +252,12 @@ export default function Home() {
 
   // Searching / waiting overlay label
   const onlineStatusLabel = () => {
-    if (socketStatus === "reconnecting") return "🔄 Reconnecting...";
-    if (matchmakingStatus === "match_found") return "✅ Match found! Starting…";
+    if (socketStatus === "reconnecting") return "Reconnecting...";
+    if (matchmakingStatus === "match_found") return "Match found! Starting...";
     if (socketStatus === "connected")
-      return `🟢 Online Match (you are ${playerColor})`;
+      return `Online Match (you are ${playerColor})`;
     if (matchmakingStatus === "error" || socketStatus === "error")
-      return `❌ ${matchmakingError ?? "Connection error"}`;
+      return matchmakingError ?? "Connection error";
     return "Online Match";
   };
 
@@ -315,10 +315,10 @@ export default function Home() {
             )}
 
             {gameMode === "online" && matchmakingStatus === "searching" && (
-              <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center animate-overlay-in" role="dialog" aria-modal="true" aria-label="Searching for opponent">
+              <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center animate-overlay-in" role="dialog" aria-modal="true" aria-labelledby="searching-opponent-title" aria-describedby="searching-opponent-description">
                 <div className="bg-gray-900 p-8 rounded-2xl border border-yellow-500/30 text-center animate-modal-in max-w-sm w-full mx-4">
                   <div className="flex flex-col items-center gap-4">
-                    <h3 className="text-xl font-bold text-yellow-400">
+                    <h3 id="searching-opponent-title" className="text-xl font-bold text-yellow-400">
                       Looking for opponent...
                     </h3>
                     <span className="relative flex h-10 w-10">
@@ -326,8 +326,8 @@ export default function Home() {
                       <span className="relative inline-flex rounded-full h-10 w-10 border-2 border-yellow-500 bg-yellow-500/10"></span>
                     </span>
 
-                    <p className="text-gray-300 text-sm" aria-live="polite">
-                      {onlinePlayerCount} Players online
+                    <p id="searching-opponent-description" className="text-gray-300 text-sm" aria-live="polite">
+                      {onlinePlayerCount ?? "Unknown"} players online
                     </p>
                     <p className="text-cyan-100 text-xs uppercase tracking-[0.24em]">
                       Queueing for {selectedVariant.label}
@@ -345,14 +345,14 @@ export default function Home() {
             )}
 
             {gameMode === "online" && socketStatus === "reconnecting" && (
-              <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center animate-overlay-in" role="dialog" aria-modal="true" aria-label="Reconnecting to game">
+              <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center animate-overlay-in" role="dialog" aria-modal="true" aria-labelledby="reconnecting-game-title" aria-describedby="reconnecting-game-description">
                 <div className="bg-gray-900 p-8 rounded-2xl border border-yellow-500/30 text-center animate-modal-in max-w-sm w-full mx-4">
                   <div className="flex flex-col items-center gap-4">
                     <div className="w-10 h-10 rounded-full border-2 border-yellow-500 border-t-transparent animate-spin" />
-                    <h3 className="text-xl font-bold text-yellow-400">
+                    <h3 id="reconnecting-game-title" className="text-xl font-bold text-yellow-400">
                       Reconnecting...
                     </h3>
-                    <p className="text-gray-300 text-sm">
+                    <p id="reconnecting-game-description" className="text-gray-300 text-sm">
                       Attempting to restore connection
                     </p>
                     <button
