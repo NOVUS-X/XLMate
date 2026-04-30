@@ -93,4 +93,59 @@ describe("useSpectatorSocket", () => {
       expect(result.current.gameState?.spectatorCount).toBe(9);
     });
   });
+
+  it("applies incremental move, clock, spectator, and game-over updates", async () => {
+    const { result } = renderHook(() => useSpectatorSocket("live-game-99"));
+
+    await waitFor(() => {
+      expect(MockWebSocket.instances.length).toBeGreaterThan(0);
+    });
+
+    act(() => {
+      const socket = MockWebSocket.instances.at(-1);
+      socket?.emitOpen();
+      socket?.emitMessage({
+        type: "sync",
+        fen: "start",
+        moves: [],
+        whiteTime: 600,
+        blackTime: 600,
+        status: "playing",
+        spectatorCount: 2,
+        white: { address: "GWHITE123456", elo: 1300 },
+        black: { address: "GBLACK654321", elo: 1290 },
+      });
+      socket?.emitMessage({ type: "move", from: "e2", to: "e4", san: "e4", color: "w" });
+      socket?.emitMessage({ type: "clock", whiteTime: 589, blackTime: 600 });
+      socket?.emitMessage({ type: "spectator_count", count: 5 });
+      socket?.emitMessage({ type: "game_over", result: "1-0", reason: "white checkmate" });
+    });
+
+    await waitFor(() => {
+      expect(result.current.gameState?.moves).toHaveLength(1);
+      expect(result.current.gameState?.moves[0].san).toBe("e4");
+      expect(result.current.gameState?.whiteTime).toBe(589);
+      expect(result.current.gameState?.spectatorCount).toBe(5);
+      expect(result.current.gameState?.status).toBe("checkmate");
+      expect(result.current.gameState?.result).toBe("1-0");
+    });
+  });
+
+  it("moves to error status on malformed socket messages", async () => {
+    const { result } = renderHook(() => useSpectatorSocket("live-game-bad-payload"));
+
+    await waitFor(() => {
+      expect(MockWebSocket.instances.length).toBeGreaterThan(0);
+    });
+
+    act(() => {
+      const socket = MockWebSocket.instances.at(-1);
+      socket?.emitOpen();
+      socket?.onmessage?.({ data: "not json" });
+    });
+
+    await waitFor(() => {
+      expect(result.current.status).toBe("error");
+    });
+  });
 });
