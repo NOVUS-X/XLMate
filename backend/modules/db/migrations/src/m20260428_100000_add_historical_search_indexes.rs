@@ -26,6 +26,15 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
+        // 2b. Mirrored composite index for head-to-head history: (black_player, white_player, created_at DESC)
+        // This ensures queries in both color directions are fully optimized.
+        manager
+            .get_connection()
+            .execute_unprepared(
+                r#"CREATE INDEX "idx_games_head_to_head_mirrored" ON "smdb"."game" ("black_player", "white_player", "created_at" DESC)"#
+            )
+            .await?;
+
         // 3. Index on `variant` for variant-specific historical search
         manager
             .create_index(
@@ -47,7 +56,12 @@ impl MigrationTrait for Migration {
 
         manager
             .get_connection()
-            .execute_unprepared(r#"DROP INDEX IF EXISTS "idx_games_head_to_head""#)
+            .execute_unprepared(r#"DROP INDEX IF EXISTS "smdb"."idx_games_head_to_head""#)
+            .await?;
+
+        manager
+            .get_connection()
+            .execute_unprepared(r#"DROP INDEX IF EXISTS "smdb"."idx_games_head_to_head_mirrored""#)
             .await?;
 
         manager

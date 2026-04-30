@@ -212,24 +212,38 @@ impl GameService {
 
         if let Some(v) = variant {
             // Map variant string to enum
-            let v_enum = match v.as_str() {
+            let v_enum = match v.to_lowercase().as_str() {
+                "standard" => db_entity::game::GameVariant::Standard,
                 "chess960" => db_entity::game::GameVariant::Chess960,
-                "three-check" => db_entity::game::GameVariant::ThreeCheck,
-                _ => db_entity::game::GameVariant::Standard,
+                "three_check" => db_entity::game::GameVariant::ThreeCheck,
+                "blitz" => db_entity::game::GameVariant::Blitz,
+                "rapid" => db_entity::game::GameVariant::Rapid,
+                "classical" => db_entity::game::GameVariant::Classical,
+                _ => return Err(DbErr::Custom(format!("Invalid game variant: {}", v))),
             };
             query = query.filter(game::Column::Variant.eq(v_enum));
         }
 
         if let Some(r) = result_side {
-            // Map result string to enum
-            let r_enum = match r.as_str() {
-                "white_wins" => db_entity::game::ResultSide::WhiteWins,
-                "black_wins" => db_entity::game::ResultSide::BlackWins,
-                "draw" => db_entity::game::ResultSide::Draw,
-                "abandoned" => db_entity::game::ResultSide::Abandoned,
-                _ => db_entity::game::ResultSide::Ongoing,
-            };
-            query = query.filter(game::Column::Result.eq(r_enum));
+            // Map result string to enum or filter by NULL for ongoing
+            match r.to_lowercase().as_str() {
+                "white_wins" => {
+                    query = query.filter(game::Column::Result.eq(db_entity::game::ResultSide::WhiteWins));
+                }
+                "black_wins" => {
+                    query = query.filter(game::Column::Result.eq(db_entity::game::ResultSide::BlackWins));
+                }
+                "draw" => {
+                    query = query.filter(game::Column::Result.eq(db_entity::game::ResultSide::Draw));
+                }
+                "abandoned" => {
+                    query = query.filter(game::Column::Result.eq(db_entity::game::ResultSide::Abandoned));
+                }
+                "ongoing" => {
+                    query = query.filter(game::Column::Result.is_null());
+                }
+                _ => return Err(DbErr::Custom(format!("Invalid result side: {}", r))),
+            }
         }
 
         if let Some(from) = from_date {
@@ -263,28 +277,6 @@ impl GameService {
 
         if let Some(cursor_str) = cursor {
             if let Ok((last_created_at, last_id)) = Self::decode_cursor(&cursor_str) {
-                // created_at < last_created_at OR (created_at = last_created_at AND id < last_id)
-                // SeaORM tuple comparison: (col1, col2) < (val1, val2)
-                // query = query.filter(
-                //    Condition::any()
-                //        .add(game::Column::CreatedAt.lt(last_created_at))
-                //        .add(
-                //            Condition::all()
-                //                .add(game::Column::CreatedAt.eq(last_created_at))
-                //                .add(game::Column::Id.lt(last_id))
-                //        )
-                // );
-                // Actually, SeaORM supports tuple comparison conveniently? 
-                // Not directly in the builder API widely in all versions, but the composite condition above is correct for (A, B) < (a, b) logic.
-                // However, tuple comparison `(A, B) < (a, b)` logic is standard SQL but SeaORM DSL is explicit.
-                
-                // Constructing: (created_at, id) < (last_created_at, last_id)
-                // Equivalent to: created_at < last_created_at OR (created_at = last_created_at AND id < last_id) (for DESC, DESC)
-                // WAIT! For DESC sort, "next page" means values SMALLER than cursor?
-                // Yes. Sorting DESC means newest first. Cursor is at some point. We want older stuff.
-                // So we want `created_at < cursor.created_at`.
-                // If created_at == cursor.created_at, then `id < cursor.id` (assuming ID also DESC).
-                
                 let condition = Condition::any()
                     .add(game::Column::CreatedAt.lt(last_created_at))
                     .add(

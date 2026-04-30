@@ -1,3 +1,5 @@
+"use client";
+
 import { useState, useMemo } from "react";
 import type { EloDataPoint } from "@/components/profile/EloRatingChart";
 import { cn } from "@/lib/utils";
@@ -61,6 +63,7 @@ export default function RecentMatches({ data }: RecentMatchesProps) {
             <input
               type="text"
               placeholder="Search opponent..."
+              aria-label="Search opponents"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full rounded-xl border border-gray-700/50 bg-gray-950/50 py-2 pl-10 pr-4 text-sm text-white outline-none transition-all focus:border-teal-500/50 focus:ring-1 focus:ring-teal-500/20 sm:w-64"
@@ -77,6 +80,8 @@ export default function RecentMatches({ data }: RecentMatchesProps) {
           
           <button
             onClick={() => setShowFilters(!showFilters)}
+            aria-label="Toggle filters"
+            aria-expanded={showFilters}
             className={cn(
               "flex h-10 w-10 items-center justify-center rounded-xl border transition-all duration-300",
               showFilters 
