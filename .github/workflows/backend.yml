@@ -71,7 +71,7 @@ jobs:
 
       - name: Build backend
         working-directory: backend
-        run: cargo build --release --exclude chess
+        run: cargo build --workspace --release --exclude chess
 
   security-scan:
     name: Security Scan

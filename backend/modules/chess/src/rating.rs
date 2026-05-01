@@ -1,4 +1,4 @@
-use sea_orm::{DatabaseConnection, DatabaseTransaction, TransactionTrait, EntityTrait, ActiveModelTrait, Set};
+use sea_orm::{DatabaseConnection, DatabaseTransaction, DbErr, TransactionTrait, EntityTrait, ActiveModelTrait, Set};
 use uuid::Uuid;
 use db_entity::{player, game};
 use error::error::ApiError;
@@ -101,7 +101,7 @@ impl RatingService {
             .ok_or_else(|| ApiError::BadRequest("Game is not completed yet".to_string()))?;
 
         // 3. Determine game outcome
-        let (white_outcome, black_outcome) = match game_result {
+        let (white_outcome, _black_outcome) = match game_result {
             db_entity::game::ResultSide::WhiteWins => (GameOutcome::Win, GameOutcome::Loss),
             db_entity::game::ResultSide::BlackWins => (GameOutcome::Loss, GameOutcome::Win),
             db_entity::game::ResultSide::Draw => (GameOutcome::Draw, GameOutcome::Draw),
