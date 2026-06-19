@@ -123,6 +123,21 @@ pub struct ListGamesQuery {
     
     #[schema(value_type = Option<String>, format = "uuid", example = "123e4567-e89b-12d3-a456-426614174000")]
     pub player_id: Option<Uuid>,
+
+    #[schema(value_type = Option<String>, format = "uuid", example = "123e4567-e89b-12d3-a456-426614174001")]
+    pub opponent_id: Option<Uuid>,
+
+    #[schema(example = "standard")]
+    pub variant: Option<String>,
+
+    #[schema(example = "white_wins")]
+    pub result_side: Option<String>,
+
+    #[schema(value_type = Option<String>, format = "date-time")]
+    pub from_date: Option<DateTime<Utc>>,
+
+    #[schema(value_type = Option<String>, format = "date-time")]
+    pub to_date: Option<DateTime<Utc>>,
     
     #[schema(default = 1, example = 1)]
     /// Deprecated: Use cursor-based pagination
