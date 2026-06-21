@@ -118,6 +118,11 @@ const MULTISIG_THRESHOLD: Symbol = symbol_short!("MS_THRES"); // u32
 const PENDING_FEE_PROPOSAL: Symbol = symbol_short!("MS_PROP"); // Option<FeeProposal>
 const FEE_PROPOSAL_APPROVALS: Symbol = symbol_short!("MS_APPR"); // Map<Address, bool>
 
+// Persistent Player Profiles (#521) – PERSISTENT storage for long-term availability
+// This key stores all player profile data in Persistent storage rather than Instance storage.
+// This ensures that player statistics and ratings survive contract upgrades and are permanently
+// available on-chain. Each player is keyed by their Address.
+const PLAYER_PROFILES: Symbol = symbol_short!("PLAYER_PROF"); // Map<Address, PlayerProfile> in Persistent storage
 // SEP-40 Oracle clock sync (#533)
 const ORACLE_CONTRACT: Symbol = symbol_short!("ORACLE"); // Address of oracle contract
 
@@ -521,6 +526,12 @@ impl GameContract {
         game.state = GameState::Drawn;
         Self::process_draw_payout(&env, &game)?;
 
+        // Update player profiles (#521) – both players draw
+        Self::update_player_profile_after_game(&env, &game.player1, false, true);
+        if let Some(ref player2) = game.player2 {
+            Self::update_player_profile_after_game(&env, player2, false, true);
+        }
+
         games.set(game_id, game);
         env.storage().instance().set(&GAMES, &games);
 
@@ -578,6 +589,16 @@ impl GameContract {
         game.winner = Some(winner.clone());
         Self::process_payout(&env, &game, &winner)?;
         game.state = GameState::Settled;
+
+        // Update player profiles (#521) – winner gets win, loser gets loss
+        Self::update_player_profile_after_game(&env, &winner, true, false);
+        if winner == game.player1 {
+            if let Some(ref player2) = game.player2 {
+                Self::update_player_profile_after_game(&env, player2, false, false);
+            }
+        } else {
+            Self::update_player_profile_after_game(&env, &game.player1, false, false);
+        }
 
         games.set(game_id, game);
         env.storage().instance().set(&GAMES, &games);
@@ -656,6 +677,10 @@ impl GameContract {
         game.winner = Some(winner.clone());
         Self::process_payout(&env, &game, &winner)?;
         game.state = GameState::Settled;
+
+        // Update player profiles (#521) – winner gets win, forfeiter gets loss
+        Self::update_player_profile_after_game(&env, &winner, true, false);
+        Self::update_player_profile_after_game(&env, &player, false, false);
 
         games.set(game_id, game);
         env.storage().instance().set(&GAMES, &games);
@@ -1281,6 +1306,16 @@ impl GameContract {
         Self::process_payout(&env, &game, &claimant)?;
         game.state = GameState::Settled;
 
+        // Update player profiles (#521) – timeout winner gets win, opponent gets loss
+        Self::update_player_profile_after_game(&env, &claimant, true, false);
+        if claimant == game.player1 {
+            if let Some(ref player2) = game.player2 {
+                Self::update_player_profile_after_game(&env, player2, false, false);
+            }
+        } else {
+            Self::update_player_profile_after_game(&env, &game.player1, false, false);
+        }
+
         games.set(game_id, game);
         env.storage().instance().set(&GAMES, &games);
 
@@ -1366,11 +1401,27 @@ impl GameContract {
                 game.winner = Some(winner_addr.clone());
                 Self::process_payout(&env, &game, winner_addr)?;
                 game.state = GameState::Settled;
+
+                // Update player profiles (#521) – winner gets win
+                Self::update_player_profile_after_game(&env, winner_addr, true, false);
+                if *winner_addr == game.player1 {
+                    if let Some(ref player2) = game.player2 {
+                        Self::update_player_profile_after_game(&env, player2, false, false);
+                    }
+                } else {
+                    Self::update_player_profile_after_game(&env, &game.player1, false, false);
+                }
             }
             None => {
                 game.state = GameState::Drawn;
                 game.winner = None;
                 Self::process_draw_payout(&env, &game)?;
+
+                // Update player profiles (#521) – both players draw
+                Self::update_player_profile_after_game(&env, &game.player1, false, true);
+                if let Some(ref player2) = game.player2 {
+                    Self::update_player_profile_after_game(&env, player2, false, true);
+                }
             }
         }
 
@@ -1833,6 +1884,136 @@ impl GameContract {
         approvals.len()
     }
 
+    // ── Player Profile Management (#521) ──────────────────────────────────────
+    //
+    // Player profiles are stored in PERSISTENT storage to ensure long-term
+    // availability and survive contract upgrades. This is critical for maintaining
+    // rankings, statistics, and player history on-chain.
+    //
+    // Profiles are created on-demand when a player first plays a game.
+    // After each game, the profile is updated with results (win/loss/draw).
+
+    /// Initialize a new player profile in persistent storage.
+    /// 
+    /// If the profile already exists, returns the existing profile.
+    /// Profiles are created with initial stats: 0 games, 0 wins/losses/draws,
+    /// starting rating of 1200 (standard chess rating).
+    fn initialize_player_profile(env: &Env, player: &Address) -> PlayerRating {
+        let mut profiles: Map<Address, PlayerRating> = env
+            .storage()
+            .persistent()
+            .get(&PLAYER_PROFILES)
+            .unwrap_or(Map::new(env));
+
+        // Return existing profile if it exists
+        if let Some(profile) = profiles.get(player.clone()) {
+            return profile;
+        }
+
+        // Create new profile with standard starting rating (1200 in chess)
+        let new_profile = PlayerRating {
+            address: player.clone(),
+            rating: 1200,
+            games_played: 0,
+            wins: 0,
+            losses: 0,
+            draws: 0,
+            highest_rating: 1200,
+            last_updated: env.ledger().sequence() as u64,
+        };
+
+        profiles.set(player.clone(), new_profile.clone());
+        env.storage()
+            .persistent()
+            .set(&PLAYER_PROFILES, &profiles);
+
+        new_profile
+    }
+
+    /// Retrieve a player profile from persistent storage.
+    /// 
+    /// Returns None if player has no profile yet.
+    pub fn get_player_profile(env: Env, player: Address) -> Option<PlayerRating> {
+        let profiles: Map<Address, PlayerRating> = env
+            .storage()
+            .persistent()
+            .get(&PLAYER_PROFILES)
+            .unwrap_or(Map::new(&env));
+
+        profiles.get(player)
+    }
+
+    /// Update player profile after game settlement.
+    ///
+    /// This function updates the player's statistics based on game outcome.
+    /// It implements a simple ELO-like rating system:
+    /// - Win: +32 rating points
+    /// - Loss: -16 rating points  
+    /// - Draw: +8 rating points
+    ///
+    /// The highest_rating is tracked to show peak achievement.
+    /// 
+    /// This function ensures efficient resource usage by:
+    /// - Single persistent storage read/write per player
+    /// - Minimal computation (no complex ELO calculations)
+    /// - No redundant state updates
+    fn update_player_profile_after_game(
+        env: &Env,
+        player: &Address,
+        is_win: bool,
+        is_draw: bool,
+    ) {
+        let mut profiles: Map<Address, PlayerRating> = env
+            .storage()
+            .persistent()
+            .get(&PLAYER_PROFILES)
+            .unwrap_or(Map::new(env));
+
+        let mut profile = Self::initialize_player_profile(env, player);
+
+        // Update game statistics
+        profile.games_played += 1;
+        
+        // Calculate rating delta and update statistics
+        let rating_delta = if is_draw {
+            profile.draws += 1;
+            8 // Draw: +8 rating
+        } else if is_win {
+            profile.wins += 1;
+            32 // Win: +32 rating
+        } else {
+            profile.losses += 1;
+            -16 // Loss: -16 rating
+        };
+
+        // Update rating (ensure it doesn't go below 0)
+        profile.rating = (profile.rating + rating_delta).max(0);
+
+        // Track highest rating
+        if profile.rating > profile.highest_rating {
+            profile.highest_rating = profile.rating;
+        }
+
+        // Update last modified timestamp
+        profile.last_updated = env.ledger().sequence() as u64;
+
+        profiles.set(player.clone(), profile);
+        env.storage()
+            .persistent()
+            .set(&PLAYER_PROFILES, &profiles);
+    }
+
+    /// Manually set a player's rating (admin only).
+    /// 
+    /// This is useful for:
+    /// - Correcting erroneous ratings
+    /// - Resetting new accounts
+    /// - Administrative corrections
+    pub fn set_player_rating(
+        env: Env,
+        admin: Address,
+        player: Address,
+        new_rating: i32,
     // ── SEP-40 Oracle Clock Sync (#533) ───────────────────────────────────────
     //
     // SEP-40 defines a standard oracle interface on Stellar/Soroban.
@@ -1899,6 +2080,70 @@ impl GameContract {
             .get(&CONTRACT_ADMIN)
             .expect("Not initialized");
         current_admin.require_auth();
+
+        if admin != current_admin {
+            return Err(ContractError::Unauthorized);
+        }
+
+        if new_rating < 0 {
+            return Err(ContractError::InvalidAmount);
+        }
+
+        let mut profiles: Map<Address, PlayerRating> = env
+            .storage()
+            .persistent()
+            .get(&PLAYER_PROFILES)
+            .unwrap_or(Map::new(&env));
+
+        let mut profile = Self::initialize_player_profile(&env, &player);
+        profile.rating = new_rating;
+
+        // Update highest rating if new rating is higher
+        if new_rating > profile.highest_rating {
+            profile.highest_rating = new_rating;
+        }
+
+        profile.last_updated = env.ledger().sequence() as u64;
+
+        profiles.set(player, profile);
+        env.storage()
+            .persistent()
+            .set(&PLAYER_PROFILES, &profiles);
+
+        Ok(())
+    }
+
+    /// Get all player profiles (paginated for efficiency).
+    /// 
+    /// Returns up to `limit` profiles starting from the given offset.
+    /// This is useful for leaderboards and statistics queries.
+    pub fn get_player_profiles_paginated(
+        env: Env,
+        offset: u32,
+        limit: u32,
+    ) -> Vec<PlayerRating> {
+        let profiles: Map<Address, PlayerRating> = env
+            .storage()
+            .persistent()
+            .get(&PLAYER_PROFILES)
+            .unwrap_or(Map::new(&env));
+
+        let mut result: Vec<PlayerRating> = Vec::new(&env);
+        let mut count = 0;
+        let mut current = 0;
+
+        for (_, profile) in profiles.iter() {
+            if current >= offset && count < limit {
+                result.push_back(profile);
+                count += 1;
+            }
+            current += 1;
+            if count >= limit {
+                break;
+            }
+        }
+
+        result
         if admin != current_admin {
             return Err(ContractError::Unauthorized);
         }
@@ -2054,6 +2299,7 @@ impl GameContract {
         escrows.get(escrow_id).ok_or(ContractError::EscrowNotFound)
     }
 }
+
 
 // ────────────────────────────────────────────────────────────────────────────
 // Tests
@@ -3007,4 +3253,446 @@ mod tests {
         let second = client.try_payout(&game_id, &player1);
         assert_eq!(second, Err(Ok(ContractError::AlreadySettled)));
     }
+
+    // ── Player Profile Tests (#521) ─────────────────────────────────────────────
+
+    #[test]
+    fn test_player_profile_creation_on_first_game() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let issuer = Address::generate(&env);
+        let stellar_token = env.register_stellar_asset_contract_v2(issuer.clone());
+        let token_address = stellar_token.address();
+        let stellar_asset_client = StellarAssetClient::new(&env, &token_address);
+
+        let admin = Address::generate(&env);
+        let player1 = Address::generate(&env);
+        let player2 = Address::generate(&env);
+        let treasury_addr = Address::generate(&env);
+
+        stellar_asset_client.mint(&player1, &1_000i128);
+        stellar_asset_client.mint(&player2, &1_000i128);
+
+        let contract_id = env.register_contract(None, GameContract);
+        let client = GameContractClient::new(&env, &contract_id);
+
+        client.initialize_token(&admin, &token_address);
+        client.initialize_puzzle_rewards(
+            &admin,
+            &Bytes::from_slice(&env, &[0u8; 32]),
+            &0i128,
+            &0u32,
+            &treasury_addr,
+        );
+
+        // Verify profile doesn't exist yet
+        let profile = client.get_player_profile(&player1);
+        assert_eq!(profile, None);
+
+        let wager: i128 = 100;
+        let game_id = client.create_game(&player1, &wager);
+        client.join_game(&game_id, &player2);
+
+        // Forfeit to settle and trigger profile update
+        client.forfeit(&game_id, &player1);
+
+        // Verify profiles were created
+        let profile1 = client.get_player_profile(&player1).unwrap();
+        let profile2 = client.get_player_profile(&player2).unwrap();
+
+        // player1 lost
+        assert_eq!(profile1.games_played, 1);
+        assert_eq!(profile1.losses, 1);
+        assert_eq!(profile1.wins, 0);
+        assert_eq!(profile1.draws, 0);
+        assert_eq!(profile1.rating, 1200 - 16); // 1200 base - 16 for loss
+
+        // player2 won
+        assert_eq!(profile2.games_played, 1);
+        assert_eq!(profile2.wins, 1);
+        assert_eq!(profile2.losses, 0);
+        assert_eq!(profile2.draws, 0);
+        assert_eq!(profile2.rating, 1200 + 32); // 1200 base + 32 for win
+    }
+
+    #[test]
+    fn test_player_profile_rating_updates() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let issuer = Address::generate(&env);
+        let stellar_token = env.register_stellar_asset_contract_v2(issuer.clone());
+        let token_address = stellar_token.address();
+        let stellar_asset_client = StellarAssetClient::new(&env, &token_address);
+
+        let admin = Address::generate(&env);
+        let player1 = Address::generate(&env);
+        let player2 = Address::generate(&env);
+        let treasury_addr = Address::generate(&env);
+
+        stellar_asset_client.mint(&player1, &5_000i128);
+        stellar_asset_client.mint(&player2, &5_000i128);
+
+        let contract_id = env.register_contract(None, GameContract);
+        let client = GameContractClient::new(&env, &contract_id);
+
+        client.initialize_token(&admin, &token_address);
+        client.initialize_puzzle_rewards(
+            &admin,
+            &Bytes::from_slice(&env, &[0u8; 32]),
+            &0i128,
+            &0u32,
+            &treasury_addr,
+        );
+
+        let wager: i128 = 100;
+
+        // Game 1: player1 wins
+        let game_id_1 = client.create_game(&player1, &wager);
+        client.join_game(&game_id_1, &player2);
+        client.forfeit(&game_id_1, &player2); // player1 wins
+
+        let profile1_after_game1 = client.get_player_profile(&player1).unwrap();
+        let profile2_after_game1 = client.get_player_profile(&player2).unwrap();
+
+        assert_eq!(profile1_after_game1.wins, 1);
+        assert_eq!(profile1_after_game1.rating, 1232); // 1200 + 32
+        assert_eq!(profile2_after_game1.losses, 1);
+        assert_eq!(profile2_after_game1.rating, 1184); // 1200 - 16
+
+        // Game 2: player2 wins
+        let game_id_2 = client.create_game(&player1, &wager);
+        client.join_game(&game_id_2, &player2);
+        client.forfeit(&game_id_2, &player1); // player2 wins
+
+        let profile1_after_game2 = client.get_player_profile(&player1).unwrap();
+        let profile2_after_game2 = client.get_player_profile(&player2).unwrap();
+
+        assert_eq!(profile1_after_game2.games_played, 2);
+        assert_eq!(profile1_after_game2.losses, 1);
+        assert_eq!(profile1_after_game2.rating, 1216); // 1232 - 16
+
+        assert_eq!(profile2_after_game2.games_played, 2);
+        assert_eq!(profile2_after_game2.wins, 1);
+        assert_eq!(profile2_after_game2.rating, 1216); // 1184 + 32
+    }
+
+    #[test]
+    fn test_player_profile_draw_rating() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let issuer = Address::generate(&env);
+        let stellar_token = env.register_stellar_asset_contract_v2(issuer.clone());
+        let token_address = stellar_token.address();
+        let token_client = TokenClient::new(&env, &token_address);
+        let stellar_asset_client = StellarAssetClient::new(&env, &token_address);
+
+        let admin = Address::generate(&env);
+        let player1 = Address::generate(&env);
+        let player2 = Address::generate(&env);
+        let treasury_addr = Address::generate(&env);
+
+        stellar_asset_client.mint(&player1, &5_000i128);
+        stellar_asset_client.mint(&player2, &5_000i128);
+
+        let contract_id = env.register_contract(None, GameContract);
+        let client = GameContractClient::new(&env, &contract_id);
+
+        client.initialize_token(&admin, &token_address);
+        let signing_key = SigningKey::generate(&mut OsRng);
+        let verifying_key_bytes: [u8; 32] = signing_key.verifying_key().to_bytes();
+        let admin_key = Bytes::from_slice(&env, &verifying_key_bytes);
+
+        client.initialize_puzzle_rewards(&admin, &admin_key, &0i128, &0u32, &treasury_addr);
+
+        let wager: i128 = 100;
+        let game_id = client.create_game(&player1, &wager);
+        client.join_game(&game_id, &player2);
+
+        // Build draw payload and sign it
+        let mut payload_bytes = Bytes::new(&env);
+        let game_id_le: [u8; 8] = game_id.to_le_bytes();
+        payload_bytes.append(&Bytes::from_slice(&env, &game_id_le));
+        payload_bytes.append(&Bytes::from_slice(&env, b"DRAW"));
+
+        let digest_bytesn: BytesN<32> = env.crypto().sha256(&payload_bytes).into();
+        let mut digest_raw = [0u8; 32];
+        digest_bytesn.copy_into_slice(&mut digest_raw);
+        let dalek_sig = signing_key.sign(&digest_raw);
+        let signature = BytesN::from_array(&env, &dalek_sig.to_bytes());
+
+        client.claim_draw(&game_id, &player1, &signature);
+
+        let profile1 = client.get_player_profile(&player1).unwrap();
+        let profile2 = client.get_player_profile(&player2).unwrap();
+
+        assert_eq!(profile1.games_played, 1);
+        assert_eq!(profile1.draws, 1);
+        assert_eq!(profile1.rating, 1208); // 1200 + 8 for draw
+
+        assert_eq!(profile2.games_played, 1);
+        assert_eq!(profile2.draws, 1);
+        assert_eq!(profile2.rating, 1208); // 1200 + 8 for draw
+    }
+
+    #[test]
+    fn test_player_profile_highest_rating_tracking() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let issuer = Address::generate(&env);
+        let stellar_token = env.register_stellar_asset_contract_v2(issuer.clone());
+        let token_address = stellar_token.address();
+        let stellar_asset_client = StellarAssetClient::new(&env, &token_address);
+
+        let admin = Address::generate(&env);
+        let player1 = Address::generate(&env);
+        let player2 = Address::generate(&env);
+        let treasury_addr = Address::generate(&env);
+
+        stellar_asset_client.mint(&player1, &10_000i128);
+        stellar_asset_client.mint(&player2, &10_000i128);
+
+        let contract_id = env.register_contract(None, GameContract);
+        let client = GameContractClient::new(&env, &contract_id);
+
+        client.initialize_token(&admin, &token_address);
+        client.initialize_puzzle_rewards(
+            &admin,
+            &Bytes::from_slice(&env, &[0u8; 32]),
+            &0i128,
+            &0u32,
+            &treasury_addr,
+        );
+
+        let wager: i128 = 100;
+
+        // Win game 1
+        let game_id_1 = client.create_game(&player1, &wager);
+        client.join_game(&game_id_1, &player2);
+        client.forfeit(&game_id_1, &player2);
+
+        // Win game 2
+        let game_id_2 = client.create_game(&player1, &wager);
+        client.join_game(&game_id_2, &player2);
+        client.forfeit(&game_id_2, &player2);
+
+        // Win game 3
+        let game_id_3 = client.create_game(&player1, &wager);
+        client.join_game(&game_id_3, &player2);
+        client.forfeit(&game_id_3, &player2);
+
+        let profile1 = client.get_player_profile(&player1).unwrap();
+
+        // 3 wins: 1200 + 32 + 32 + 32 = 1296
+        assert_eq!(profile1.rating, 1296);
+        assert_eq!(profile1.highest_rating, 1296);
+        assert_eq!(profile1.wins, 3);
+    }
+
+    #[test]
+    fn test_player_profile_persistent_storage() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let issuer = Address::generate(&env);
+        let stellar_token = env.register_stellar_asset_contract_v2(issuer.clone());
+        let token_address = stellar_token.address();
+        let stellar_asset_client = StellarAssetClient::new(&env, &token_address);
+
+        let admin = Address::generate(&env);
+        let player1 = Address::generate(&env);
+        let player2 = Address::generate(&env);
+        let treasury_addr = Address::generate(&env);
+
+        stellar_asset_client.mint(&player1, &5_000i128);
+        stellar_asset_client.mint(&player2, &5_000i128);
+
+        let contract_id = env.register_contract(None, GameContract);
+        let client = GameContractClient::new(&env, &contract_id);
+
+        client.initialize_token(&admin, &token_address);
+        client.initialize_puzzle_rewards(
+            &admin,
+            &Bytes::from_slice(&env, &[0u8; 32]),
+            &0i128,
+            &0u32,
+            &treasury_addr,
+        );
+
+        let wager: i128 = 100;
+
+        // Create and play first game
+        let game_id_1 = client.create_game(&player1, &wager);
+        client.join_game(&game_id_1, &player2);
+        client.forfeit(&game_id_1, &player1);
+
+        let profile1_after_game1 = client.get_player_profile(&player1).unwrap();
+        let stored_rating_1 = profile1_after_game1.rating;
+
+        // Create and play second game
+        let game_id_2 = client.create_game(&player1, &wager);
+        client.join_game(&game_id_2, &player2);
+        client.forfeit(&game_id_2, &player1);
+
+        let profile1_after_game2 = client.get_player_profile(&player1).unwrap();
+        let stored_rating_2 = profile1_after_game2.rating;
+
+        // Verify rating accumulated correctly (persistent storage)
+        assert_eq!(profile1_after_game1.games_played, 1);
+        assert_eq!(profile1_after_game2.games_played, 2);
+        assert_eq!(stored_rating_2, stored_rating_1 - 16); // Lost again, rating decreases
+    }
+
+    #[test]
+    fn test_set_player_rating_admin_only() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let issuer = Address::generate(&env);
+        let stellar_token = env.register_stellar_asset_contract_v2(issuer.clone());
+        let token_address = stellar_token.address();
+        let stellar_asset_client = StellarAssetClient::new(&env, &token_address);
+
+        let admin = Address::generate(&env);
+        let player1 = Address::generate(&env);
+        let treasury_addr = Address::generate(&env);
+
+        stellar_asset_client.mint(&player1, &1_000i128);
+
+        let contract_id = env.register_contract(None, GameContract);
+        let client = GameContractClient::new(&env, &contract_id);
+
+        client.initialize_token(&admin, &token_address);
+        client.initialize_puzzle_rewards(
+            &admin,
+            &Bytes::from_slice(&env, &[0u8; 32]),
+            &0i128,
+            &0u32,
+            &treasury_addr,
+        );
+
+        // Set rating to 1500
+        client.set_player_rating(&admin, &player1, &1500i32);
+
+        let profile = client.get_player_profile(&player1).unwrap();
+        assert_eq!(profile.rating, 1500);
+        assert_eq!(profile.highest_rating, 1500);
+    }
+
+    #[test]
+    fn test_profile_updates_in_dispute_resolution() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let issuer = Address::generate(&env);
+        let stellar_token = env.register_stellar_asset_contract_v2(issuer.clone());
+        let token_address = stellar_token.address();
+        let token_client = TokenClient::new(&env, &token_address);
+        let stellar_asset_client = StellarAssetClient::new(&env, &token_address);
+
+        let admin = Address::generate(&env);
+        let player1 = Address::generate(&env);
+        let player2 = Address::generate(&env);
+        let arbitrator = Address::generate(&env);
+        let treasury_addr = Address::generate(&env);
+
+        stellar_asset_client.mint(&player1, &2_000i128);
+        stellar_asset_client.mint(&player2, &2_000i128);
+
+        let contract_id = env.register_contract(None, GameContract);
+        let client = GameContractClient::new(&env, &contract_id);
+
+        client.initialize_token(&admin, &token_address);
+        client.initialize_puzzle_rewards(
+            &admin,
+            &Bytes::from_slice(&env, &[0u8; 32]),
+            &0i128,
+            &0u32,
+            &treasury_addr,
+        );
+        client.configure_dispute_system(&admin, &arbitrator, &100i128);
+
+        let wager: i128 = 100;
+        let game_id = client.create_game(&player1, &wager);
+        client.join_game(&game_id, &player2);
+
+        // File dispute
+        let reason = Bytes::from_slice(&env, b"Cheating suspected");
+        let dispute_id = client.file_dispute(&game_id, &player1, &player2, &reason);
+
+        // Arbitrator resolves in favor of player2
+        client.resolve_dispute(&dispute_id, &arbitrator, &Some(player2.clone()), &reason);
+
+        // Verify profiles were updated
+        let profile1 = client.get_player_profile(&player1).unwrap();
+        let profile2 = client.get_player_profile(&player2).unwrap();
+
+        assert_eq!(profile1.games_played, 1);
+        assert_eq!(profile1.losses, 1);
+        assert_eq!(profile2.games_played, 1);
+        assert_eq!(profile2.wins, 1);
+    }
+
+    #[test]
+    fn test_multiple_players_independent_profiles() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let issuer = Address::generate(&env);
+        let stellar_token = env.register_stellar_asset_contract_v2(issuer.clone());
+        let token_address = stellar_token.address();
+        let stellar_asset_client = StellarAssetClient::new(&env, &token_address);
+
+        let admin = Address::generate(&env);
+        let player1 = Address::generate(&env);
+        let player2 = Address::generate(&env);
+        let player3 = Address::generate(&env);
+        let treasury_addr = Address::generate(&env);
+
+        stellar_asset_client.mint(&player1, &10_000i128);
+        stellar_asset_client.mint(&player2, &10_000i128);
+        stellar_asset_client.mint(&player3, &10_000i128);
+
+        let contract_id = env.register_contract(None, GameContract);
+        let client = GameContractClient::new(&env, &contract_id);
+
+        client.initialize_token(&admin, &token_address);
+        client.initialize_puzzle_rewards(
+            &admin,
+            &Bytes::from_slice(&env, &[0u8; 32]),
+            &0i128,
+            &0u32,
+            &treasury_addr,
+        );
+
+        let wager: i128 = 100;
+
+        // Game 1: player1 vs player2 (player1 wins)
+        let game_id_1 = client.create_game(&player1, &wager);
+        client.join_game(&game_id_1, &player2);
+        client.forfeit(&game_id_1, &player2);
+
+        // Game 2: player2 vs player3 (player3 wins)
+        let game_id_2 = client.create_game(&player2, &wager);
+        client.join_game(&game_id_2, &player3);
+        client.forfeit(&game_id_2, &player2);
+
+        let profile1 = client.get_player_profile(&player1).unwrap();
+        let profile2 = client.get_player_profile(&player2).unwrap();
+        let profile3 = client.get_player_profile(&player3).unwrap();
+
+        // Verify each player has independent stats
+        assert_eq!(profile1.wins, 1);
+        assert_eq!(profile1.losses, 0);
+
+        assert_eq!(profile2.wins, 0);
+        assert_eq!(profile2.losses, 2);
+
+        assert_eq!(profile3.wins, 1);
+        assert_eq!(profile3.losses, 0);
+    }
 }
+
