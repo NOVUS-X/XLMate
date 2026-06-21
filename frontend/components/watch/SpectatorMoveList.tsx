@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { Fragment, useEffect, useMemo, useRef } from "react";
 import { Chess } from "chess.js";
 import type { SpectatorMove } from "@/hook/useSpectatorSocket";
 import { cn } from "@/lib/utils";
@@ -63,7 +63,7 @@ export function SpectatorMoveList({ moves, currentFen }: SpectatorMoveListProps)
             const latestIndex = moves.length - 1;
 
             return (
-              <>
+              <Fragment key={`move-row-${pair.moveNumber}`}>
                 <div
                   key={`move-number-${pair.moveNumber}`}
                   className="py-2 text-xs font-semibold text-gray-500"
@@ -88,7 +88,7 @@ export function SpectatorMoveList({ moves, currentFen }: SpectatorMoveListProps)
                 >
                   {pair.black?.san ?? "—"}
                 </div>
-              </>
+              </Fragment>
             );
           })}
           <div ref={endRef} />

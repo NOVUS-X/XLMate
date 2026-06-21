@@ -2,6 +2,7 @@ import type { SpectatorMove } from "@/hook/useSpectatorSocket";
 import {
   formatClock,
   getCapturedFromMoves,
+  getCapturedPieceSymbols,
   getGamePhase,
   truncateAddress,
 } from "@/lib/spectatorUtils";
@@ -13,6 +14,11 @@ describe("spectatorUtils", () => {
       expect(formatClock(60)).toBe("1:00");
       expect(formatClock(599)).toBe("9:59");
       expect(formatClock(3600)).toBe("60:00");
+    });
+
+    it("normalizes unsafe clock values", () => {
+      expect(formatClock(-12)).toBe("0:00");
+      expect(formatClock(61.9)).toBe("1:01");
     });
   });
 
@@ -45,6 +51,20 @@ describe("spectatorUtils", () => {
     it("handles empty move lists", () => {
       expect(getCapturedFromMoves([])).toEqual({ white: [], black: [] });
     });
+
+    it("ignores malformed move payloads without dropping later valid moves", () => {
+      const moves: SpectatorMove[] = [
+        { from: "e2", to: "e5", san: "e5", color: "w" },
+        { from: "e2", to: "e4", san: "e4", color: "w" },
+        { from: "d7", to: "d5", san: "d5", color: "b" },
+        { from: "e4", to: "d5", san: "exd5", color: "w" },
+      ];
+
+      expect(getCapturedFromMoves(moves)).toEqual({
+        white: ["p"],
+        black: [],
+      });
+    });
   });
 
   describe("getGamePhase", () => {
@@ -54,6 +74,17 @@ describe("spectatorUtils", () => {
       expect(getGamePhase(11)).toBe("middlegame");
       expect(getGamePhase(30)).toBe("middlegame");
       expect(getGamePhase(31)).toBe("endgame");
+    });
+  });
+
+  describe("getCapturedPieceSymbols", () => {
+    it("maps captured pieces from the opponent perspective", () => {
+      expect(getCapturedPieceSymbols(["p", "q"], "white")).toEqual(["♟", "♛"]);
+      expect(getCapturedPieceSymbols(["n", "r"], "black")).toEqual(["♘", "♖"]);
+    });
+
+    it("falls back for unknown piece identifiers", () => {
+      expect(getCapturedPieceSymbols(["x"], "white")).toEqual(["X"]);
     });
   });
 });
