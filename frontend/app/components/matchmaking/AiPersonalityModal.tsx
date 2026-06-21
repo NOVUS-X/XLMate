@@ -107,20 +107,46 @@ export function AiPersonalityModal({
     useMatchmakingContext();
   const selectedVariant = getChessVariantById(chessVariant);
 
+  React.useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="ai-personality-modal-title"
+      aria-describedby="ai-personality-modal-description"
+    >
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-black/70 backdrop-blur-sm"
         onClick={onClose}
+        aria-hidden="true"
       />
 
       {/* Modal panel */}
       <div className="relative z-10 w-full max-w-lg mx-4 bg-gray-900 rounded-2xl border border-gray-700 shadow-2xl p-6 space-y-6">
         {/* Close button */}
         <button
+          type="button"
           onClick={onClose}
           className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors duration-200"
           aria-label="Close personality selector"
@@ -143,10 +169,10 @@ export function AiPersonalityModal({
 
         {/* Header */}
         <div className="text-center space-y-1">
-          <h2 className="text-2xl font-bold text-white tracking-wide">
+          <h2 id="ai-personality-modal-title" className="text-2xl font-bold text-white tracking-wide">
             Finalize Match Setup
           </h2>
-          <p className="text-gray-400 text-sm">
+          <p id="ai-personality-modal-description" className="text-gray-400 text-sm">
             Lock in your preferred chess format and AI co-pilot before matchmaking starts.
           </p>
         </div>
@@ -171,13 +197,16 @@ export function AiPersonalityModal({
         </div>
 
         {/* Personality cards */}
-        <div className="space-y-3">
+        <div className="space-y-3" role="group" aria-label="AI personality options">
           {PERSONALITIES.map((option) => {
             const isSelected = aiPersonality === option.id;
             return (
               <button
+                type="button"
                 key={option.id}
                 onClick={() => setAiPersonality(option.id)}
+                aria-pressed={isSelected}
+                aria-label={`Select ${option.label} AI personality. ${option.description}`}
                 className={`personality-card w-full flex items-center gap-4 p-4 rounded-xl border-2 text-left transition-all duration-250
                   ${
                     isSelected
@@ -198,6 +227,7 @@ export function AiPersonalityModal({
                 </div>
                 {/* Selection indicator */}
                 <div
+                  aria-hidden="true"
                   className={`flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all duration-200
                     ${isSelected ? `${option.borderColor} bg-transparent` : "border-gray-600"}`}
                 >
@@ -212,6 +242,7 @@ export function AiPersonalityModal({
 
         {/* Confirm button */}
         <button
+          type="button"
           onClick={onConfirm}
           className="confirm-btn w-full py-3 rounded-xl font-bold text-white text-sm uppercase tracking-widest bg-gradient-to-r from-teal-500 to-blue-700 hover:from-teal-600 hover:to-blue-800 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
         >

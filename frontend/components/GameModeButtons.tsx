@@ -34,10 +34,10 @@ const GameModeButtons: React.FC<GameModeButtonsProps> = ({ setGameMode }) => {
       <div className="play-button-container relative">
         <button
           onClick={() => setGameMode("online")}
-          aria-label="Play Online — Play with someone at your level"
+          aria-label="Play Online. Play with someone at your level"
           className="play-button w-full p-4 relative border-none outline-none cursor-pointer transition-all duration-300 ease-in-out z-[2] overflow-hidden flex items-center justify-center bg-transparent"
         >
-          <span className="button-text flex items-center gap-6 z-[3]">
+          <div className="button-text flex items-center gap-6 z-[3]">
             <div className="bg-teal-400/20 p-3 rounded-full shadow-lg">
               <FaUser className="text-3xl text-white filter drop-shadow-md" />
             </div>
@@ -49,7 +49,7 @@ const GameModeButtons: React.FC<GameModeButtonsProps> = ({ setGameMode }) => {
                 Play with someone at your level
               </p>
             </div>
-          </span>
+          </div>
           <div className="clip absolute inset-0 border-[5px] border-solid border-transparent bg-gradient-to-r from-teal-500 to-blue-700 transition-all duration-300 ease-in-out" />
           <div className="corner top-left absolute w-[30px] h-[30px] bg-teal-500" />
           <div className="corner top-right absolute w-[30px] h-[30px] bg-blue-700" />
@@ -61,10 +61,10 @@ const GameModeButtons: React.FC<GameModeButtonsProps> = ({ setGameMode }) => {
       <div className="play-button-container relative">
         <button
           onClick={() => setGameMode("bot")}
-          aria-label="Play Bots — Play vs customizable training bots"
+          aria-label="Play Bots. Play vs customizable training bots"
           className="play-button w-full p-4 relative border-none outline-none cursor-pointer transition-all duration-300 ease-in-out z-[2] overflow-hidden flex items-center justify-center bg-transparent"
         >
-          <span className="button-text flex items-center gap-6 z-[3]">
+          <div className="button-text flex items-center gap-6 z-[3]">
             <div className="bg-[#008e90]/20 p-3 rounded-full shadow-lg">
               <RiAliensFill className="text-3xl text-white filter drop-shadow-md" />
             </div>
@@ -74,7 +74,7 @@ const GameModeButtons: React.FC<GameModeButtonsProps> = ({ setGameMode }) => {
                 Play vs customizable training bots
               </p>
             </div>
-          </span>
+          </div>
           <div className="clip absolute inset-0 border-[5px] border-solid border-transparent bg-[#008e90] transition-all duration-300 ease-in-out" />
           <div className="corner top-left absolute w-[30px] h-[30px] bg-[#008e90]" />
           <div className="corner top-right absolute w-[30px] h-[30px] bg-[#008e90]" />
@@ -86,10 +86,10 @@ const GameModeButtons: React.FC<GameModeButtonsProps> = ({ setGameMode }) => {
       <div className="play-button-container relative">
         <button
           onClick={() => router.push("/puzzles")}
-          aria-label="Learn and Earn — Solve puzzles to earn XLM rewards"
+          aria-label="Learn and Earn. Solve puzzles to earn XLM rewards"
           className="play-button w-full p-4 relative border-none outline-none cursor-pointer transition-all duration-300 ease-in-out z-[2] overflow-hidden flex items-center justify-center bg-transparent"
         >
-          <span className="button-text flex items-center gap-6 z-[3]">
+          <div className="button-text flex items-center gap-6 z-[3]">
             <div className="bg-yellow-400/20 p-3 rounded-full shadow-lg">
               <FaTrophy className="text-3xl text-white filter drop-shadow-md" />
             </div>
@@ -101,7 +101,7 @@ const GameModeButtons: React.FC<GameModeButtonsProps> = ({ setGameMode }) => {
                 Solve puzzles to earn XLM rewards
               </p>
             </div>
-          </span>
+          </div>
           <div className="clip absolute inset-0 border-[5px] border-solid border-transparent bg-gradient-to-r from-yellow-500 to-orange-600 transition-all duration-300 ease-in-out" />
           <div className="corner top-left absolute w-[30px] h-[30px] bg-yellow-500" />
           <div className="corner top-right absolute w-[30px] h-[30px] bg-orange-600" />
